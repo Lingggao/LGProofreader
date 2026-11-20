@@ -1,0 +1,118 @@
+name: Release plugin package
+
+# Manual one-click release:
+# Actions -> Release plugin package -> Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v (e.g. 0.1.0)'
+        required: true
+        default: '0.1.0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate and package
+        run: pnpm validate && pnpm release
+
+      - name: Verify release artifacts
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: $VERSION" >&2
+            exit 1
+          fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
+            echo "package.json version ($PACKAGE_VERSION) != workflow version ($VERSION)" >&2
+            exit 1
+          fi
+          NOTES="docs/releases/v${VERSION}.md"
+          TGZ="release/LGProofreader-${VERSION}.tgz"
+          ZIP="release/LGProofreader-${VERSION}.zip"
+          test -f "$NOTES"
+          test -f "$TGZ"
+          test -f "$ZIP"
+          test -f release/SHA256SUMS.txt
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          if tar -tzf "$TGZ" | grep -Eq '^package/(src|tests|scripts|assets|node_modules|docs/verification|\.superpowers)/'; then
+            echo "Private/dev files found in release tgz" >&2
+            exit 1
+          fi
+          if unzip -l "$ZIP" | grep -Eq 'LGProofreader/(src|tests|scripts|assets|node_modules|docs/verification|\.superpowers)/'; then
+            echo "Private/dev files found in release zip" >&2
+            exit 1
+          fi
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: LGProofreader-${{ inputs.version }}
+          path: |
+            release/LGProofreader-${{ inputs.version }}.tgz
+            release/LGProofreader-${{ inputs.version }}.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          TITLE="Ling Gao 校对员 v${VERSION}"
+          NOTES="docs/releases/v${VERSION}.md"
+          TGZ="release/LGProofreader-${VERSION}.tgz"
+          ZIP="release/LGProofreader-${VERSION}.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES"
+            gh release upload "$TAG" "$TGZ" "$ZIP" release/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" "$TGZ" "$ZIP" release/SHA256SUMS.txt \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file "$NOTES"
+          fi

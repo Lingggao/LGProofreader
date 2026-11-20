@@ -109,6 +109,19 @@ pnpm release
 
 归档只包含安装所需文件（`package.json`、`cordis.patch.yml`、`icon.png`、`lib/`、`locale/`、`prompts/`、详情页文档、README/CHANGELOG/LICENSE/THIRD_PARTY_NOTICES），**不包含** `src/`、`assets/`、`tests/`、`scripts/`、`node_modules/`、内部设计文档与历史 release。发布与 push 由仓库所有者自行完成。
 
+## 一键发布（GitHub Actions）
+
+仓库包含 `.github/workflows/release.yml`。把代码 push 到 GitHub 后：
+
+1. 打开仓库 **Actions** 页；
+2. 左侧选择 **Release plugin package**；
+3. 点击 **Run workflow**，`version` 填 `0.1.0`（不带 `v`），再点 **Run workflow**；
+4. 工作流会自动跑 typecheck、test、build、validate、release，并把
+   `LGProofreader-0.1.0.tgz`、`.zip`、`SHA256SUMS.txt` 直接发布到
+   GitHub Releases 的 **v0.1.0**。
+
+工作流只使用 GitHub 自带的 `GITHUB_TOKEN`（`contents: write`），不需要在仓库里配置任何 API key 或 secret。发布新版本时同步修改 `package.json`、`docs/releases/vX.Y.Z.md` 和 workflow 输入中的版本号即可。
+
 ## 许可
 
 代码采用 MIT 许可证，见 [`LICENSE`](LICENSE)。随 Client bundle 分发的 `pdfjs-dist` 采用 Apache License 2.0，许可文本与第三方声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。品牌美术资源由 Ling Gao 提供，版权归 Ling Gao；MIT 代码许可不自动覆盖品牌资源，来源与派生说明见**源码仓库**中的 `assets/brand/README.md`（`assets/` 目录不随安装包发布，品牌图仅以内联 data URL 形式进入 `lib/client.js` / `docs/preview.svg`）。
