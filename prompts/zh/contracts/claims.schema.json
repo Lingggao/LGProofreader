@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fact-check claim extraction output",
+  "description": "facts 角色第一阶段输出：逐段扫描全文、不抽样，抽取所有可核查项；超限项不得静默丢弃，由 Host 标 not_checked。",
+  "type": "object",
+  "required": ["claims"],
+  "additionalProperties": false,
+  "properties": {
+    "claims": {
+      "type": "array",
+      "description": "可核查项清单；没有可核查项时为空数组，并在 notes 说明“未发现可核查项”。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "quote", "kind", "queries", "priority"],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "description": "待核查的事实主张，一句话说清。"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "description": "原文中支持该主张的连续片段。"
+          },
+          "kind": {
+            "enum": [
+              "date",
+              "time",
+              "person",
+              "title",
+              "organization",
+              "place",
+              "book",
+              "event",
+              "number",
+              "quote",
+              "other"
+            ]
+          },
+          "queries": {
+            "type": "array",
+            "description": "2–3 个搜索词变体（全称/简称、日期+事件、书名+作者等），只取事实关键词。",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "核查优先级，1 最高；按“是否影响事实错误”排序。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

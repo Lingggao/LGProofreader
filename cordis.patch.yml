@@ -1,0 +1,7 @@
+# Host half of the Ling Gao 校对员 (Ling Gao Proofreader) bundle: registers the
+# exact /api/lgproofreader routes, the plugin-data store and the background
+# layout/proofreading pipeline.
+- insert:
+    - id: lg-proofreader
+      name: 'lg-proofreader'
+      config: {}

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vision layout output",
+  "description": "视觉版面分析模型（Task 11）的输出契约：只对候选文本块分类/归组，不转写文字、不提供坐标；对象根节点。pageType 只要求字符串（建议 front|news|supplement|literary|ad|unknown），未知值不使整份输出失败。",
+  "type": "object",
+  "required": ["pageType", "regions", "articles", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "pageType": {
+      "type": "string",
+      "description": "版面类型，建议 front|news|supplement|literary|ad|unknown；解析器接受任意字符串。"
+    },
+    "regions": {
+      "type": "array",
+      "description": "候选块分类结果，每个候选块出现且只出现一次。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidateId", "kind", "articleGroup", "readingOrder", "confidence"],
+        "properties": {
+          "candidateId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "候选块编号，必须来自输入清单（如 c1、c2）。"
+          },
+          "kind": {
+            "enum": [
+              "masthead",
+              "header",
+              "footer",
+              "lead",
+              "second",
+              "third",
+              "article",
+              "image",
+              "caption",
+              "ad",
+              "index",
+              "other"
+            ],
+            "description": "区域类型；报头/报脚/广告/图片等版面家具不得作为文章标题候选。"
+          },
+          "articleGroup": {
+            "type": "string",
+            "description": "所属文章 id；不属于任何文章（报头/报脚/图片/广告/索引等）用空字符串。非空时必须对应 articles 中的一篇文章。"
+          },
+          "readingOrder": {
+            "type": "number",
+            "description": "阅读顺序，从 1 开始。"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "articles": {
+      "type": "array",
+      "description": "由若干区域组成的文章清单。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "titleCandidateId", "role", "order", "regionIds", "continuation", "confidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "文章 id，须唯一。"
+          },
+          "titleCandidateId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "标题候选块编号，必须是候选清单中的非家具候选。"
+          },
+          "role": {
+            "enum": ["lead", "second", "third", "normal"]
+          },
+          "order": {
+            "type": "number",
+            "description": "文章在页面内的阅读顺序。"
+          },
+          "regionIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "组成该文章的区域（候选块编号），须在 regions 中出现且不重复。"
+          },
+          "continuation": {
+            "enum": ["none", "down", "up"],
+            "description": "续文提示；单页产品不会自动拼接续文。"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "警告列表；解析器缺失时按空列表处理（如 vision-fallback 表示已降级为确定性兜底）。"
+    }
+  }
+}

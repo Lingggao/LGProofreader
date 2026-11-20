@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fact-check verdicts output",
+  "description": "facts 角色第二阶段输出：每个 claim 都必须有结论，包括 confirmed；无来源不判 contradicted；来源冲突列全部来源并标 needs_human。",
+  "type": "object",
+  "required": ["verdicts"],
+  "additionalProperties": false,
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "description": "逐项核验结论，覆盖第一阶段提出的每个 claim。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "verdict", "confidence"],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "minLength": 1,
+            "description": "与第一阶段主张清单中相同的 claim 文本。"
+          },
+          "verdict": {
+            "enum": ["confirmed", "contradicted", "unverified", "insufficient", "not_checked"],
+            "description": "confirmed=有可靠来源支持；contradicted=可靠来源与原文冲突；unverified=查不到足够信息；insufficient=只有低质量来源；not_checked=因条数上限/预算未核查。"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "核查依据摘要（可选）。"
+          },
+          "sources": {
+            "type": "array",
+            "description": "依据来源；来源互相矛盾时列出全部来源。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "url"],
+              "properties": {
+                "title": { "type": "string", "minLength": 1 },
+                "url": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "confidence": {
+            "enum": ["high", "medium", "low"]
+          },
+          "needs_human": {
+            "type": "boolean",
+            "description": "来源冲突或无法裁决时为 true。"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "verdict": { "const": "contradicted" } },
+              "required": ["verdict"]
+            },
+            "then": {
+              "required": ["sources"],
+              "properties": { "sources": { "minItems": 1 } }
+            }
+          }
+        ]
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}

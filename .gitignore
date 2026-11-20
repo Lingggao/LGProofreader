@@ -1,0 +1,30 @@
+# Dependency and build output
+node_modules/
+build/
+coverage/
+*.tsbuildinfo
+
+# Release artifacts (never committed; regenerate with `pnpm release`)
+release/
+*.tgz
+*.zip
+
+# User data, sample PDFs, logs and secrets (never in the repository)
+*.pdf
+plugin-data/
+uploads/
+user-data/
+reports/
+output/
+*.log
+.env*
+src/client/generated/
+
+# Test and agent tooling output
+test-results/
+playwright-report/
+.superpowers/
+
+# Python bytecode from the dev-only baseline script
+__pycache__/
+*.pyc

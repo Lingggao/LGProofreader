@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Proofreading findings output",
+  "description": "校对角色的输出契约（facts 的主张抽取/核验阶段使用 claims/factchecks 契约）。对象根节点；不得输出改写后的全文。",
+  "type": "object",
+  "required": ["findings"],
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "type": "array",
+      "description": "逐条修改建议，按问题严重程度排序。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "severity", "quote", "issue", "suggestion", "confidence"],
+        "properties": {
+          "category": {
+            "enum": [
+              "typo",
+              "punctuation",
+              "word",
+              "idiom",
+              "grammar",
+              "fact",
+              "consistency",
+              "headline",
+              "format"
+            ]
+          },
+          "severity": {
+            "enum": ["must_fix", "suggested", "optional"],
+            "description": "must_fix 只用于确凿错误；suggested/optional 必须给出理由。"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "description": "原文中的连续片段，必须能在正文中精确定位（允许空白/全半角归一化后匹配）。"
+          },
+          "occurrence": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "quote 在正文中第几次出现，从 1 开始；默认 1。"
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1,
+            "description": "问题说明（简短）。"
+          },
+          "suggestion": {
+            "type": "string",
+            "description": "建议改成什么；修改处的文字用 **加粗** 标出。"
+          },
+          "reason": {
+            "type": "string",
+            "description": "为什么（规则/依据）。"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "词典、规范或网页摘要（可选）。"
+          },
+          "sources": {
+            "type": "array",
+            "description": "事实性/外部依据的来源；来源冲突时列出全部来源。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "url"],
+              "properties": {
+                "title": { "type": "string", "minLength": 1 },
+                "url": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "confidence": {
+            "enum": ["high", "medium", "low"]
+          },
+          "needs_human": {
+            "type": "boolean",
+            "description": "引用无法定位、来源冲突或无法裁决时为 true。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "可选的整体说明；不包含改写后的全文。"
+    }
+  }
+}

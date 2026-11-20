@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Ling Gao Proofreader",
+    "description": "Open the newspaper proofreading workbench from the left sidebar (\"Ling Gao Proofreader\"): upload a single-page newspaper PDF and the plugin detects the masthead, header, footer, lead/second/third stories and every article, extracts the full text, and — after you explicitly select articles (or the whole page) and confirm — runs multiple background proofreading roles that itemize suggested edits plus a fact-check checklist. PDFs, page images and reports stay in the local plugin-data directory; proofreading sends article text and page images to the configured model provider, and online fact checking sends claim keywords to the search provider. No chat session is created and prompt text is never shown. Single-page PDFs only; no OCR for scans.",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -1,0 +1,773 @@
+/**
+ * Client-side copy of the Ling Gao 校对员 panel (Task 17; design §9.6).
+ *
+ * The panel namespace is `lgproofreader`. Dictionaries exist for **both** `zh`
+ * and `en` with an identical key set (the design requires both languages), and
+ * are registered through `ctx.locale.register(NS, { zh, en })` in `index.tsx`.
+ *
+ * Copy rules:
+ * - branding names: zh `Ling Gao 校对员`, en `Ling Gao Proofreader`;
+ * - no prompt text ever lives here: the Prompt Library is Host-only (design
+ *   §8/§1.4) and this module is shipped in the browser bundle;
+ * - article text, quotes and source titles are never translated.
+ *
+ * `defaultTranslate` is the zh fallback used by the presentational components
+ * when rendered without the locale-bound `t` seat (tests, isolated previews).
+ */
+
+/** Locale namespace owned by the plugin. */
+export const NS = 'lgproofreader'
+
+/** BCP 47-ish locale ids shipped by the DSH locale service. */
+export type LocaleId = 'zh' | 'en'
+
+/** One locale dictionary: flat key -> template string with `{name}` slots. */
+export type LocaleDict = Record<string, string>
+
+/** Translation function shape (matches the framework's `t` seat). */
+export type Translate = (key: string, params?: Record<string, string | number>) => string
+
+/** Simplified Chinese dictionary — the key-set source of truth. */
+export const zh = {
+  panel: 'Ling Gao 校对员',
+  subtitle: '报纸版面智能校对',
+
+  'header.upload': '上传 PDF',
+  'header.cancel': '取消',
+  'header.settings': '设置',
+
+  'rail.title': '最近文档',
+  'rail.empty': '暂无文档',
+  'rail.upload': '上传',
+  'rail.collapse': '折叠最近文档',
+  'rail.expand': '展开最近文档',
+  'rail.status.parsing': '解析中',
+  'rail.status.ready': '已就绪',
+  'rail.status.failed': '失败',
+
+  'empty.lead': '把一页报纸 PDF 分解为可校对的文章。先分析版面，再按需校对。',
+  'empty.dropHint': '拖拽 PDF 到这里，或点击下方按钮选择文件',
+  'empty.choose': '选择 PDF 文件',
+  'empty.constraints': '仅支持单页 PDF，单个文件 ≤ 150 MB',
+
+  'view.ready': '版面分析完成',
+  'view.parsing': '正在解析版面…',
+  'view.analyzing': '正在分析版面…',
+  'view.articleCount': '文章数：{count}',
+  'view.warningCount': '警告 {count} 条',
+  'view.noArticles': '没有识别到文章',
+
+  'placeholder.canvas': '版面画布',
+  'placeholder.articleList': '文章列表',
+  'placeholder.proofread': '校对与报告',
+  'placeholder.pending': '该区域由后续界面步骤替换',
+
+  'transfer.validating': '正在检查文件…',
+  'transfer.parsing': '正在解析版面（单页）…',
+  'transfer.uploading': '正在上传…',
+  'transfer.submitting': '正在提交页面数据…',
+  'transfer.analyzing': '正在分析版面，期间请勿切换面板…',
+
+  'error.not_pdf': '不是有效的 PDF 文件（缺少 %PDF- 文件头）',
+  'error.too_large': '文件超过 150 MB 上限',
+  'error.empty_file': '文件是空的',
+  'error.multi_page': 'PDF 有 {count} 页；v1 只接受单页，请拆分后再上传',
+  'error.parse_failed': '无法解析 PDF 版面',
+  'error.generic': '操作失败：{message}',
+  'error.retry': '重试',
+  'error.cancelled': '已取消，可重新上传',
+
+  'ready.notice': '版面分析完成，请勾选文章后开始校对（不会自动开始）',
+
+  'a11y.uploadInput': '选择要校对的 PDF 文件',
+  'a11y.dropzone': 'PDF 上传区',
+  'a11y.progress': '上传进度',
+
+  // Canvas / region overlay (Task 18; design §9.2/§9.4).
+  'canvas.pageImage': '页面图',
+  'canvas.toolbar': '画布工具',
+  'canvas.zoomIn': '放大',
+  'canvas.zoomOut': '缩小',
+  'canvas.fit': '适应宽度',
+  'canvas.zoom': '缩放 {percent}%',
+  'canvas.regionCount': '区域 {count} 个',
+  'canvas.regionLabel': '{kind}区域',
+  'canvas.confidence': '置信度 {percent}%',
+  'canvas.order': '阅读顺序 {order}',
+  'canvas.lowConfidence': '低置信度',
+
+  // Region kinds (design §6.4/§6.5).
+  'region.kind.masthead': '报头',
+  'region.kind.header': '页眉',
+  'region.kind.footer': '报脚',
+  'region.kind.lead': '头条',
+  'region.kind.second': '二条',
+  'region.kind.third': '三条',
+  'region.kind.article': '正文',
+  'region.kind.image': '图片',
+  'region.kind.caption': '图说',
+  'region.kind.ad': '广告',
+  'region.kind.index': '导读',
+  'region.kind.other': '其他',
+
+  // Article list (design §9.2/§9.4: explicit selection only).
+  'article.title': '文章',
+  'article.role.lead': '头条',
+  'article.role.second': '二条',
+  'article.role.third': '三条',
+  'article.role.normal': '正文',
+  'article.untitled': '（无标题）',
+  'article.selectAll': '本页全部',
+  'article.clear': '全不选',
+  'article.selected': '已选 {count}/{total}',
+  'article.confidence': '置信度 {percent}%',
+  'article.warningCount': '警告 {count} 条',
+  'article.empty': '没有识别到文章',
+
+  // Region inspector (design §6.5/§9.4: drag must have keyboard/numeric
+  // alternatives).
+  'inspector.title': '区域检查器',
+  'inspector.close': '关闭区域检查器',
+  'inspector.x': 'x 坐标',
+  'inspector.y': 'y 坐标',
+  'inspector.width': '宽度',
+  'inspector.height': '高度',
+  'inspector.kind': '区域类型',
+  'inspector.order': '阅读顺序 {order}',
+  'inspector.orderUp': '上移',
+  'inspector.orderDown': '下移',
+  'inspector.merge': '合并下一区域',
+  'inspector.split': '拆分区域',
+  'inspector.splitAxis': '拆分方向',
+  'inspector.splitAxis.horizontal': '上下切分',
+  'inspector.splitAxis.vertical': '左右切分',
+  'inspector.splitRatio': '拆分位置',
+  'inspector.delete': '删除区域',
+  'inspector.assign': '所属文章',
+  'inspector.assignNone': '未归属',
+
+  // Undo/redo + layout persistence (Task 18 fix round; design §6.5).
+  'history.undo': '撤销',
+  'history.redo': '重做',
+  'save.pending': '未保存',
+  'save.saving': '保存中…',
+  'save.saved': '已保存',
+  'save.error': '保存失败',
+
+  // Article text editing (design §6.5/§9.4).
+  'article.edit': '编辑',
+  'article.editDone': '完成',
+  'article.editLabel': '编辑文章：{title}',
+  'article.field.title': '标题',
+  'article.field.byline': '署名',
+  'article.field.body': '正文',
+  'article.fullText': '文章全文（标题 · 副题 · 署名 · 正文）',
+
+  // Layout warnings recomputed after every edit (design §6.5).
+  'warnings.summary': '布局警告：重叠 {overlap} · 未归属 {unassigned} · 空文章 {empty} · 超出页面 {outOfPage}',
+  'warnings.unassignedList': '未归属区域：{ids}',
+  'warnings.emptyArticle': '无区域',
+  'warnings.region.overlap': '与其它区域重叠',
+  'warnings.region.unassigned': '未归属文章',
+  'warnings.region.outOfPage': '超出页面',
+  'region.unassigned': '未归属',
+
+  // Proofreading controls (Task 19; design §7.2/§7.5/§9.4/§11.2).
+  'proof.title': '校对',
+  'proof.noSelection': '未选择文章',
+  'proof.selected': '已选 {count} 篇文章',
+  'proof.noSelectionHint': '请先在文章列表勾选文章，或点“本页全部”，再开始校对。',
+  'proof.depth': '校对深度',
+  'proof.depth.quick': '快速',
+  'proof.depth.standard': '标准',
+  'proof.depth.deep': '深度',
+  'proof.roles': '角色 {count} 个',
+  'proof.estimate': '预计模型调用 {calls} 次',
+  'proof.factCheck': '联网事实核查',
+  'proof.factCheckOffWarning':
+    '本次报告不含联网核查：事实核查仍会执行，但结论将标为“未核实”，报告会标注“未联网核查”。',
+  'proof.start': '开始校对',
+  'proof.cancel': '取消校对',
+  'proof.retry': '重试校对',
+  'proof.cancelled': '校对已取消',
+  'proof.failed': '校对失败：{message}',
+  'proof.startFailed': '无法开始校对：{message}',
+  'proof.invalidReport': '校对任务已完成，但返回的报告无法读取',
+  'proof.failedRoles': '上次校对有 {count} 个角色未完成',
+  'proof.failedRolesDetail': '相关结果缺失，报告已标注；重新校对可补齐。',
+  'proof.confirmWholePage': '本页全部 {articles} 篇文章，预计模型调用 {calls} 次。确认开始校对？',
+  'proof.confirmWholePageOffline':
+    '本页全部 {articles} 篇文章，预计模型调用 {calls} 次；联网核查已关闭，报告将标注“未联网核查”。确认开始校对？',
+  'proof.confirmOffline': '联网核查已关闭，本次报告会标注“未联网核查”。确认开始校对？',
+  'proof.confirmStart': '确认开始',
+  'proof.confirmCancel': '取消',
+  'a11y.proofProgress': '校对进度',
+
+  // Job progress (Task 19; design §9.3).
+  'job.title': '校对任务',
+  'job.status.queued': '排队中',
+  'job.status.running': '校对中',
+  'job.status.done': '已完成',
+  'job.status.failed': '失败',
+  'job.status.cancelled': '已取消',
+  'job.progress': '进度 {percent}%',
+  'job.stageCount': '{done}/{total} 个阶段',
+  'job.stage.pending': '等待中',
+  'job.stage.running': '进行中',
+  'job.stage.done': '完成',
+  'job.stage.failed': '失败',
+
+  // Live exhaustive fact-check plan and progress (Task 29; design §9.3).
+  'fact.plan.title': '事实核查计划',
+  'fact.plan.needed': '需要核查 {total} 项',
+  'fact.plan.checked': '已核查 {checked} 项',
+  'fact.plan.notChecked': '未核查 {notChecked} 项',
+  'fact.plan.phase': '阶段：{phase}',
+  'fact.plan.searched': '已检索 {searched}',
+  'fact.plan.listLabel': '待核查主张（按优先级）',
+  'fact.plan.empty': '未发现可核查项',
+  'fact.priority': '优先级 {priority}',
+  'fact.phase.planning': '规划中',
+  'fact.phase.searching': '检索中',
+  'fact.phase.verifying': '核验中',
+  'fact.phase.done': '已完成',
+  'fact.status.pending': '待核查',
+  'fact.status.searching': '检索中',
+  'fact.status.searched': '已检索',
+  'fact.status.verifying': '核验中',
+  'fact.status.checked': '已核查',
+  'fact.status.not_checked': '未核查',
+
+  // Report summary, findings and actions (Task 19; design §7.6/§9.4).
+  'report.title': '校对报告',
+  'report.summary': '报告摘要',
+  'report.mustFixList': '必须修改的条目',
+  'report.noMustFix': '无必须修改的条目。',
+  'report.model': '模型：{model}',
+  'report.depthLabel': '深度：{depth}',
+  'report.createdAt': '生成时间',
+  'report.promptVersion': '提示词版本：{version}',
+  'report.copy': '复制 Markdown',
+  'report.export': '下载 Markdown',
+  'report.copied': '已复制',
+  'report.copyFailed': '复制失败，请重试',
+  'report.showing': '显示 {visible}/{total} 条',
+  'report.noMatch': '没有符合筛选条件的问题。',
+  'report.articleFallback': '文章 {id}',
+  'report.articleFallbackUnknown': '未归属文章',
+  'report.sourceLink': '来源：{title}',
+  'report.filter.severity': '按严重级别筛选',
+  'report.filter.category': '按类别筛选',
+  'report.filter.article': '按文章筛选',
+  'report.filter.all': '全部',
+  'report.severity.must_fix': '必改',
+  'report.severity.suggested': '建议',
+  'report.severity.optional': '可选',
+  'report.category.typo': '错别字',
+  'report.category.punctuation': '标点',
+  'report.category.word': '词语',
+  'report.category.idiom': '成语',
+  'report.category.grammar': '语法',
+  'report.category.fact': '事实',
+  'report.category.consistency': '一致性',
+  'report.category.headline': '标题',
+  'report.category.format': '格式',
+  'report.finding.status.open': '待处理',
+  'report.finding.status.accepted': '已接受',
+  'report.finding.status.rejected': '已忽略',
+  'report.finding.status.deferred': '待定',
+  'report.finding.accept': '接受',
+  'report.finding.reject': '忽略',
+  'report.finding.defer': '待定',
+  'report.finding.issueText': '问题：{issue}',
+  'report.finding.suggestion': '建议',
+  'report.finding.deleteSuggestion': '（删除）',
+  'report.finding.occurrence': '第 {occurrence} 处',
+  'report.finding.reason': '理由：{reason}',
+  'report.finding.evidence': '依据：{evidence}',
+  'report.finding.sources': '来源',
+  'report.finding.needsHuman': '需人工确认',
+
+  // Report UX completion: tabs, drawer, locate, batch accept and new filters
+  // (Task 19b; design §9.2/§9.4).
+  'tabs.label': '文章与校对',
+  'tabs.articles': '文章',
+  'tabs.proofread': '校对',
+  'aside.label': '文章与校对侧栏',
+  'aside.toggle': '侧栏',
+  'aside.toggleLabel': '打开或关闭文章与校对侧栏',
+  'aside.close': '关闭侧栏',
+  'report.filter.role': '按角色筛选',
+  'report.filter.status': '按状态筛选',
+  'report.filter.keyword': '按关键词筛选',
+  'report.filter.keywordPlaceholder': '搜索问题、引用或建议',
+  'report.noFindings': '未发现问题。',
+  'report.batch.selected': '已选 {count} 条',
+  'report.batch.acceptSelected': '接受所选',
+  'report.batch.acceptAll': '全部接受',
+  'report.batch.selectFinding': '选择此问题：{issue}',
+  'report.exportJson': '下载 JSON',
+  'report.confidence.high': '置信度：高',
+  'report.confidence.medium': '置信度：中',
+  'report.confidence.low': '置信度：低',
+  'report.finding.locate': '定位',
+  'report.finding.locateLabel': '在画布上定位：{quote}',
+  'report.locateNotice': '已定位：{article} · {region}',
+  'report.locateNoticeArticle': '已定位：{article}',
+  'report.summaryArticles': '涉及文章',
+  'report.summaryUnverified': '未核实项',
+  'report.role.master': '主审',
+  'report.role.words': '字词',
+  'report.role.idioms': '成语',
+  'report.role.style': '规范',
+  'report.role.facts': '事实',
+  'report.role.headline': '标题',
+  'report.role.consistency': '一致性',
+  'report.role.consolidator': '汇总',
+
+  // Fact-check verdicts/kinds and checklist (Task 19; design §7.4).
+  'report.verdict.confirmed': '已核实',
+  'report.verdict.contradicted': '有冲突',
+  'report.verdict.unverified': '未核实',
+  'report.verdict.insufficient': '证据不足',
+  'report.verdict.not_checked': '未检查',
+  'report.kind.date': '日期',
+  'report.kind.time': '时间',
+  'report.kind.person': '人物',
+  'report.kind.title': '职务',
+  'report.kind.organization': '机构',
+  'report.kind.place': '地点',
+  'report.kind.book': '书名',
+  'report.kind.event': '事件',
+  'report.kind.number': '数字',
+  'report.kind.quote': '引语',
+  'report.kind.other': '其他',
+  'report.fact.title': '事实核查清单',
+  'report.fact.offline': '未联网核查',
+  'report.fact.offlineDetail': '本次报告未使用联网核查；未核实/未检查的条目会如实列出。',
+  'report.fact.empty': '未发现可核查项。',
+  'report.fact.claim': '主张',
+  'report.fact.quote': '原文引用',
+  'report.fact.kind': '类型',
+  'report.fact.verdict': '结论',
+  'report.fact.basis': '依据/来源',
+  'report.fact.occurrence': '第 {occurrence} 处',
+
+  // Failed-role warnings (Task 21f): a failed role is “not checked”, never an
+  // empty result, so the fact checklist empty state must say so explicitly.
+  'report.failedRoles.title': '未完成角色',
+  'report.failedRoles.detail': '以下角色未完成：报告缺少它们的结果，不能视为已检查。',
+  'report.failedRoles.noError': '未提供错误信息',
+  'report.fact.failedTitle': '事实核查未完成',
+  'report.fact.emptyFailed': '事实核查角色未完成，不能视为未发现可核查项。',
+
+  // Settings drawer — only runtime-effective settings (Task 19; design §11.2).
+  'settings.title': '设置',
+  'settings.back': '← 返回',
+  'settings.close': '关闭设置',
+  'settings.closeShort': '关闭',
+  'settings.loading': '正在读取设置…',
+  'settings.loadFailed': '无法读取设置：{message}',
+  'settings.provider': '模型服务商',
+  'settings.model': '模型',
+  'settings.depth': '默认校对深度',
+  'settings.concurrency': '并发工作数',
+  'settings.timeout': '单次调用超时（秒）',
+  'settings.factCheck': '联网事实核查',
+  'settings.noCatalogue': '当前环境未提供模型目录，保留现有模型配置。',
+  'settings.restartNote': '模型服务商、模型、并发和超时在下次激活插件后生效。',
+  'settings.saving': '保存中…',
+  'settings.save': '保存设置',
+  'settings.saved': '已保存',
+  'settings.saveFailed': '无法保存设置：{message}',
+} as const
+
+/** English dictionary; the mapped type enforces the same key set as {@link zh}. */
+export const en = {
+  panel: 'Ling Gao Proofreader',
+  subtitle: 'Smart newspaper page proofreading',
+
+  'header.upload': 'Upload PDF',
+  'header.cancel': 'Cancel',
+  'header.settings': 'Settings',
+
+  'rail.title': 'Recent documents',
+  'rail.empty': 'No documents yet',
+  'rail.upload': 'Upload',
+  'rail.collapse': 'Collapse recent documents',
+  'rail.expand': 'Expand recent documents',
+  'rail.status.parsing': 'Parsing',
+  'rail.status.ready': 'Ready',
+  'rail.status.failed': 'Failed',
+
+  'empty.lead':
+    'Turn a newspaper page PDF into proofreadable articles. Analyze the layout first, then proofread as needed.',
+  'empty.dropHint': 'Drop a PDF here, or use the button below to choose a file',
+  'empty.choose': 'Choose a PDF file',
+  'empty.constraints': 'Single-page PDFs only, up to 150 MB each',
+
+  'view.ready': 'Layout ready',
+  'view.parsing': 'Parsing the page…',
+  'view.analyzing': 'Analyzing the layout…',
+  'view.articleCount': 'Articles: {count}',
+  'view.warningCount': '{count} warnings',
+  'view.noArticles': 'No articles were recognized',
+
+  'placeholder.canvas': 'Page canvas',
+  'placeholder.articleList': 'Article list',
+  'placeholder.proofread': 'Proofreading & report',
+  'placeholder.pending': 'This area is replaced by a later UI step',
+
+  'transfer.validating': 'Checking the file…',
+  'transfer.parsing': 'Parsing the page…',
+  'transfer.uploading': 'Uploading…',
+  'transfer.submitting': 'Submitting page data…',
+  'transfer.analyzing': 'Analyzing the layout — keep this panel open…',
+
+  'error.not_pdf': 'Not a valid PDF (missing the %PDF- header)',
+  'error.too_large': 'The file exceeds the 150 MB limit',
+  'error.empty_file': 'The file is empty',
+  'error.multi_page': 'The PDF has {count} pages; v1 accepts one page — split the file first',
+  'error.parse_failed': 'Could not parse the PDF page',
+  'error.generic': 'Operation failed: {message}',
+  'error.retry': 'Retry',
+  'error.cancelled': 'Cancelled — you can upload again',
+
+  'ready.notice': 'Layout ready — select articles to start proofreading (it never starts automatically)',
+
+  'a11y.uploadInput': 'Choose a PDF to proofread',
+  'a11y.dropzone': 'PDF upload area',
+  'a11y.progress': 'Upload progress',
+
+  // Canvas / region overlay (Task 18; design §9.2/§9.4).
+  'canvas.pageImage': 'Page image',
+  'canvas.toolbar': 'Canvas tools',
+  'canvas.zoomIn': 'Zoom in',
+  'canvas.zoomOut': 'Zoom out',
+  'canvas.fit': 'Fit width',
+  'canvas.zoom': 'Zoom {percent}%',
+  'canvas.regionCount': 'Regions: {count}',
+  'canvas.regionLabel': '{kind} region',
+  'canvas.confidence': 'Confidence {percent}%',
+  'canvas.order': 'Reading order {order}',
+  'canvas.lowConfidence': 'Low confidence',
+
+  // Region kinds (design §6.4/§6.5).
+  'region.kind.masthead': 'Masthead',
+  'region.kind.header': 'Header',
+  'region.kind.footer': 'Footer',
+  'region.kind.lead': 'Lead',
+  'region.kind.second': 'Second lead',
+  'region.kind.third': 'Third lead',
+  'region.kind.article': 'Article',
+  'region.kind.image': 'Image',
+  'region.kind.caption': 'Caption',
+  'region.kind.ad': 'Advertisement',
+  'region.kind.index': 'Index',
+  'region.kind.other': 'Other',
+
+  // Article list (design §9.2/§9.4: explicit selection only).
+  'article.title': 'Articles',
+  'article.role.lead': 'Lead',
+  'article.role.second': 'Second lead',
+  'article.role.third': 'Third lead',
+  'article.role.normal': 'Body',
+  'article.untitled': '(untitled)',
+  'article.selectAll': 'Select this page',
+  'article.clear': 'Select none',
+  'article.selected': 'Selected {count}/{total}',
+  'article.confidence': 'Confidence {percent}%',
+  'article.warningCount': '{count} warnings',
+  'article.empty': 'No articles were recognized',
+
+  // Region inspector (design §6.5/§9.4: drag must have keyboard/numeric
+  // alternatives).
+  'inspector.title': 'Region inspector',
+  'inspector.close': 'Close region inspector',
+  'inspector.x': 'x coordinate',
+  'inspector.y': 'y coordinate',
+  'inspector.width': 'Width',
+  'inspector.height': 'Height',
+  'inspector.kind': 'Region kind',
+  'inspector.order': 'Reading order {order}',
+  'inspector.orderUp': 'Move up',
+  'inspector.orderDown': 'Move down',
+  'inspector.merge': 'Merge next region',
+  'inspector.split': 'Split region',
+  'inspector.splitAxis': 'Split direction',
+  'inspector.splitAxis.horizontal': 'Horizontal cut',
+  'inspector.splitAxis.vertical': 'Vertical cut',
+  'inspector.splitRatio': 'Split position',
+  'inspector.delete': 'Delete region',
+  'inspector.assign': 'Article',
+  'inspector.assignNone': 'Unassigned',
+
+  // Undo/redo + layout persistence (Task 18 fix round; design §6.5).
+  'history.undo': 'Undo',
+  'history.redo': 'Redo',
+  'save.pending': 'Unsaved',
+  'save.saving': 'Saving…',
+  'save.saved': 'Saved',
+  'save.error': 'Save failed',
+
+  // Article text editing (design §6.5/§9.4).
+  'article.edit': 'Edit',
+  'article.editDone': 'Done',
+  'article.editLabel': 'Edit article: {title}',
+  'article.field.title': 'Title',
+  'article.field.byline': 'Byline',
+  'article.field.body': 'Body',
+  'article.fullText': 'Complete article (title · subtitle · byline · body)',
+
+  // Layout warnings recomputed after every edit (design §6.5).
+  'warnings.summary': 'Layout warnings: overlaps {overlap} · unassigned {unassigned} · empty articles {empty} · out of page {outOfPage}',
+  'warnings.unassignedList': 'Unassigned regions: {ids}',
+  'warnings.emptyArticle': 'No regions',
+  'warnings.region.overlap': 'Overlaps another region',
+  'warnings.region.unassigned': 'Not assigned to an article',
+  'warnings.region.outOfPage': 'Outside the page',
+  'region.unassigned': 'Unassigned',
+
+  // Proofreading controls (Task 19; design §7.2/§7.5/§9.4/§11.2).
+  'proof.title': 'Proofreading',
+  'proof.noSelection': 'No articles selected',
+  'proof.selected': '{count} article(s) selected',
+  'proof.noSelectionHint':
+    'Tick articles in the list (or choose the whole page) before starting.',
+  'proof.depth': 'Proofreading depth',
+  'proof.depth.quick': 'Quick',
+  'proof.depth.standard': 'Standard',
+  'proof.depth.deep': 'Deep',
+  'proof.roles': '{count} roles',
+  'proof.estimate': 'Estimated model calls: {calls}',
+  'proof.factCheck': 'Network fact-checking',
+  'proof.factCheckOffWarning':
+    'This report will not include network verification: the facts role still runs, but its verdicts will be unverified and the report will be marked "no network verification".',
+  'proof.start': 'Start proofreading',
+  'proof.cancel': 'Cancel proofreading',
+  'proof.retry': 'Retry proofreading',
+  'proof.cancelled': 'Proofreading cancelled',
+  'proof.failed': 'Proofreading failed: {message}',
+  'proof.startFailed': 'Could not start proofreading: {message}',
+  'proof.invalidReport': 'The job finished but its report could not be read',
+  'proof.failedRoles': 'The last run left {count} role(s) unfinished',
+  'proof.failedRolesDetail':
+    'Their results are missing and the report is marked; run proofreading again to complete them.',
+  'proof.confirmWholePage':
+    'The whole page has {articles} articles and an estimated {calls} model calls. Start proofreading?',
+  'proof.confirmWholePageOffline':
+    'The whole page has {articles} articles and an estimated {calls} model calls; network verification is off, so the report will be marked "no network verification". Start proofreading?',
+  'proof.confirmOffline':
+    'Network verification is off, so this report will be marked "no network verification". Start proofreading?',
+  'proof.confirmStart': 'Start',
+  'proof.confirmCancel': 'Cancel',
+  'a11y.proofProgress': 'Proofreading progress',
+
+  // Job progress (Task 19; design §9.3).
+  'job.title': 'Proofreading job',
+  'job.status.queued': 'Queued',
+  'job.status.running': 'Proofreading',
+  'job.status.done': 'Done',
+  'job.status.failed': 'Failed',
+  'job.status.cancelled': 'Cancelled',
+  'job.progress': 'Progress {percent}%',
+  'job.stageCount': '{done}/{total} stages',
+  'job.stage.pending': 'Waiting',
+  'job.stage.running': 'Running',
+  'job.stage.done': 'Done',
+  'job.stage.failed': 'Failed',
+
+  // Live exhaustive fact-check plan and progress (Task 29; design §9.3).
+  'fact.plan.title': 'Fact-check plan',
+  'fact.plan.needed': 'To check: {total}',
+  'fact.plan.checked': 'Checked: {checked}',
+  'fact.plan.notChecked': 'Not checked: {notChecked}',
+  'fact.plan.phase': 'Phase: {phase}',
+  'fact.plan.searched': '{searched} searched',
+  'fact.plan.listLabel': 'Claims to check (by priority)',
+  'fact.plan.empty': 'No verifiable claims found',
+  'fact.priority': 'Priority {priority}',
+  'fact.phase.planning': 'Planning',
+  'fact.phase.searching': 'Searching',
+  'fact.phase.verifying': 'Verifying',
+  'fact.phase.done': 'Done',
+  'fact.status.pending': 'Pending',
+  'fact.status.searching': 'Searching',
+  'fact.status.searched': 'Searched',
+  'fact.status.verifying': 'Verifying',
+  'fact.status.checked': 'Checked',
+  'fact.status.not_checked': 'Not checked',
+
+  // Report summary, findings and actions (Task 19; design §7.6/§9.4).
+  'report.title': 'Proofreading report',
+  'report.summary': 'Report summary',
+  'report.mustFixList': 'Must-fix items',
+  'report.noMustFix': 'No must-fix items.',
+  'report.model': 'Model: {model}',
+  'report.depthLabel': 'Depth: {depth}',
+  'report.createdAt': 'Created',
+  'report.promptVersion': 'Prompt version: {version}',
+  'report.copy': 'Copy Markdown',
+  'report.export': 'Download Markdown',
+  'report.copied': 'Copied',
+  'report.copyFailed': 'Copy failed, please retry',
+  'report.showing': 'Showing {visible}/{total}',
+  'report.noMatch': 'No findings match the filters.',
+  'report.articleFallback': 'Article {id}',
+  'report.articleFallbackUnknown': 'Unassigned article',
+  'report.sourceLink': 'Source: {title}',
+  'report.filter.severity': 'Filter by severity',
+  'report.filter.category': 'Filter by category',
+  'report.filter.article': 'Filter by article',
+  'report.filter.all': 'All',
+  'report.severity.must_fix': 'Must fix',
+  'report.severity.suggested': 'Suggested',
+  'report.severity.optional': 'Optional',
+  'report.category.typo': 'Typos',
+  'report.category.punctuation': 'Punctuation',
+  'report.category.word': 'Wording',
+  'report.category.idiom': 'Idioms',
+  'report.category.grammar': 'Grammar',
+  'report.category.fact': 'Facts',
+  'report.category.consistency': 'Consistency',
+  'report.category.headline': 'Headline',
+  'report.category.format': 'Format',
+  'report.finding.status.open': 'Open',
+  'report.finding.status.accepted': 'Accepted',
+  'report.finding.status.rejected': 'Rejected',
+  'report.finding.status.deferred': 'Deferred',
+  'report.finding.accept': 'Accept',
+  'report.finding.reject': 'Ignore',
+  'report.finding.defer': 'Defer',
+  'report.finding.issueText': 'Issue: {issue}',
+  'report.finding.suggestion': 'Suggestion',
+  'report.finding.deleteSuggestion': '(delete)',
+  'report.finding.occurrence': 'Occurrence {occurrence}',
+  'report.finding.reason': 'Why: {reason}',
+  'report.finding.evidence': 'Evidence: {evidence}',
+  'report.finding.sources': 'Sources',
+  'report.finding.needsHuman': 'Needs human review',
+
+  // Report UX completion: tabs, drawer, locate, batch accept and new filters
+  // (Task 19b; design §9.2/§9.4).
+  'tabs.label': 'Articles and proofreading',
+  'tabs.articles': 'Articles',
+  'tabs.proofread': 'Proofreading',
+  'aside.label': 'Articles and proofreading panel',
+  'aside.toggle': 'Panel',
+  'aside.toggleLabel': 'Open or close the articles and proofreading panel',
+  'aside.close': 'Close panel',
+  'report.filter.role': 'Filter by role',
+  'report.filter.status': 'Filter by status',
+  'report.filter.keyword': 'Filter by keyword',
+  'report.filter.keywordPlaceholder': 'Search issue, quote or suggestion',
+  'report.noFindings': 'No issues found.',
+  'report.batch.selected': 'Selected {count}',
+  'report.batch.acceptSelected': 'Accept selected',
+  'report.batch.acceptAll': 'Accept all',
+  'report.batch.selectFinding': 'Select finding: {issue}',
+  'report.exportJson': 'Download JSON',
+  'report.confidence.high': 'Confidence: high',
+  'report.confidence.medium': 'Confidence: medium',
+  'report.confidence.low': 'Confidence: low',
+  'report.finding.locate': 'Locate',
+  'report.finding.locateLabel': 'Locate on the page: {quote}',
+  'report.locateNotice': 'Located: {article} · {region}',
+  'report.locateNoticeArticle': 'Located: {article}',
+  'report.summaryArticles': 'Articles involved',
+  'report.summaryUnverified': 'Unverified',
+  'report.role.master': 'Master review',
+  'report.role.words': 'Wording',
+  'report.role.idioms': 'Idioms',
+  'report.role.style': 'Style',
+  'report.role.facts': 'Facts',
+  'report.role.headline': 'Headline',
+  'report.role.consistency': 'Consistency',
+  'report.role.consolidator': 'Consolidation',
+
+  // Fact-check verdicts/kinds and checklist (Task 19; design §7.4).
+  'report.verdict.confirmed': 'Confirmed',
+  'report.verdict.contradicted': 'Contradicted',
+  'report.verdict.unverified': 'Unverified',
+  'report.verdict.insufficient': 'Insufficient',
+  'report.verdict.not_checked': 'Not checked',
+  'report.kind.date': 'Date',
+  'report.kind.time': 'Time',
+  'report.kind.person': 'Person',
+  'report.kind.title': 'Title',
+  'report.kind.organization': 'Organization',
+  'report.kind.place': 'Place',
+  'report.kind.book': 'Book',
+  'report.kind.event': 'Event',
+  'report.kind.number': 'Number',
+  'report.kind.quote': 'Quote',
+  'report.kind.other': 'Other',
+  'report.fact.title': 'Fact-check checklist',
+  'report.fact.offline': 'No network verification',
+  'report.fact.offlineDetail':
+    'This report did not use network verification; unverified/not-checked rows are still listed.',
+  'report.fact.empty': 'No verifiable claims found.',
+  'report.fact.claim': 'Claim',
+  'report.fact.quote': 'Quote',
+  'report.fact.kind': 'Kind',
+  'report.fact.verdict': 'Verdict',
+  'report.fact.basis': 'Evidence / sources',
+  'report.fact.occurrence': 'Occurrence {occurrence}',
+
+  // Failed-role warnings (Task 21f): a failed role is “not checked”, never an
+  // empty result, so the fact checklist empty state must say so explicitly.
+  'report.failedRoles.title': 'Incomplete roles',
+  'report.failedRoles.detail':
+    'These roles did not finish: their results are missing from this report and must not be treated as checked.',
+  'report.failedRoles.noError': 'No error message',
+  'report.fact.failedTitle': 'Fact checking incomplete',
+  'report.fact.emptyFailed':
+    'The fact-checking role did not finish: this must not be read as "no verifiable claims found".',
+
+  // Settings drawer — only runtime-effective settings (Task 19; design §11.2).
+  'settings.title': 'Settings',
+  'settings.back': '← Back',
+  'settings.close': 'Close settings',
+  'settings.closeShort': 'Close',
+  'settings.loading': 'Loading settings…',
+  'settings.loadFailed': 'Could not load settings: {message}',
+  'settings.provider': 'Model provider',
+  'settings.model': 'Model',
+  'settings.depth': 'Default proofreading depth',
+  'settings.concurrency': 'Concurrent workers',
+  'settings.timeout': 'Per-call timeout (seconds)',
+  'settings.factCheck': 'Network fact-checking',
+  'settings.noCatalogue': 'No model catalogue is available; the current model stays unchanged.',
+  'settings.restartNote':
+    'Provider, model, concurrency and timeout take effect the next time the plugin activates.',
+  'settings.saving': 'Saving…',
+  'settings.save': 'Save settings',
+  'settings.saved': 'Saved',
+  'settings.saveFailed': 'Could not save settings: {message}',
+} satisfies Record<keyof typeof zh, string>
+
+/**
+ * Replace `{name}` placeholders in one template. Unknown placeholders are left
+ * untouched (and get reported by tests if a key drifts).
+ */
+export function interpolate(
+  template: string,
+  params?: Record<string, string | number>,
+): string {
+  if (params === undefined) return template
+  return template.replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, key: string) => {
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
+}
+
+/** Bind one dictionary into a lookup + interpolation function. */
+export function createTranslator(dictionary: LocaleDict): Translate {
+  return (key, params) => interpolate(dictionary[key] ?? key, params)
+}
+
+/** Dictionary of the panel's shipped locales, in registration order. */
+export const dictionaries: Record<LocaleId, LocaleDict> = { zh, en }
+
+/** zh fallback translator for isolated component rendering. */
+export const defaultTranslate: Translate = createTranslator(zh)
