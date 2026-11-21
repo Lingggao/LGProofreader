@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Network noun-check planning output",
+  "description": "nouns 角色只抽取名词与查询词；存在性由 Host 的联网证据判定。",
+  "type": "object",
+  "required": ["nouns"],
+  "additionalProperties": false,
+  "properties": {
+    "nouns": {
+      "type": "array",
+      "description": "按优先级排序的名词清单；没有可核查名词时为空数组。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "quote", "kind", "queries", "priority"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "description": "名词/术语本身。" },
+          "quote": { "type": "string", "minLength": 1, "description": "原文中包含该名词的连续片段。" },
+          "kind": {
+            "enum": [
+              "organization",
+              "company",
+              "institution",
+              "place",
+              "product",
+              "system",
+              "project",
+              "event",
+              "person",
+              "title",
+              "technical_term",
+              "other"
+            ]
+          },
+          "queries": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "只含名词关键词的搜索变体，不是问句。"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 最高；按读者是否需要确认该名词存在性排序。"
+          }
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ import type {
   Article,
   FactCheck,
   Finding,
+  NounCheck,
   Report,
   ReportRoleFailure,
 } from '../../src/shared/types'
@@ -41,6 +42,31 @@ function factCheck(overrides: Partial<FactCheck> = {}): FactCheck {
     needsHuman: false,
     ...overrides,
   }
+}
+
+/** One existence-only noun check with the brief's fixture shape. */
+function nounCheck(overrides: Partial<NounCheck> = {}): NounCheck {
+  return {
+    id: 'noun1',
+    articleId: 'a1',
+    name: '复旦大学附属华山医院',
+    quote: '复旦大学附属华山医院团队',
+    kind: 'institution',
+    priority: 1,
+    status: 'exists',
+    evidence: '检索到 2 个来源可佐证该名词存在。',
+    sources: [{ title: '来源', url: 'https://example.com/huashan' }],
+    confidence: 'medium',
+    needsHuman: false,
+    ...overrides,
+  }
+}
+
+/** Noun-check summary counts; overriding replaces the whole block. */
+function nounSummary(
+  overrides: Partial<NonNullable<Report['summary']['nounCheck']>> = {},
+): NonNullable<Report['summary']['nounCheck']> {
+  return { exists: 1, uncertain: 0, notFound: 0, notChecked: 0, ...overrides }
 }
 
 /** One article with the brief's fixture shape. */
@@ -134,7 +160,7 @@ describe('document layout', () => {
     const factRow = markdown.indexOf('| 2026年11月14日 |')
     const mustFix = markdown.indexOf('## 必须修改的条目')
     const summaryItem = markdown.indexOf('改“的地得”')
-    const footer = markdown.indexOf('Ling Gao Proofreader v0.1.0')
+    const footer = markdown.indexOf('Ling Gao Proofreader v1.0.0')
     expect(title).toBe(0)
     expect(articleHeading).toBeGreaterThan(title)
     expect(findings).toBeGreaterThan(articleHeading)
@@ -399,7 +425,7 @@ describe('must-fix summary and footer', () => {
   it('ends with a footer carrying product version, model and prompt version', () => {
     const markdown = renderReportMarkdown(report(), [article()])
     const footer = markdown.trimEnd().split('\n').at(-1) as string
-    expect(footer).toContain('Ling Gao Proofreader v0.1.0')
+    expect(footer).toContain('Ling Gao Proofreader v1.0.0')
     expect(footer).toContain('deepseek-flash')
     expect(footer).toContain('v1')
   })
@@ -417,7 +443,120 @@ describe('must-fix summary and footer', () => {
     expect(markdown).toContain('# Ling Gao 校对员 · 校对报告')
     expect(markdown).toContain('未发现可核查项。')
     expect(markdown).toContain('无必须修改的条目。')
-    expect(markdown).toContain('Ling Gao Proofreader v0.1.0')
+    expect(markdown).toContain('Ling Gao Proofreader v1.0.0')
+  })
+})
+
+describe('noun checklist (existence only)', () => {
+  /** The part of the document from the noun heading to the must-fix block. */
+  function nounSection(markdown: string): string {
+    const start = markdown.indexOf('## 名词核查')
+    expect(start, 'missing 名词核查 section').toBeGreaterThanOrEqual(0)
+    return markdown.slice(start, markdown.indexOf('## 必须修改的条目'))
+  }
+
+  it('renders a compact name/status/evidence/source table after the fact checklist', () => {
+    const checks = [
+      nounCheck({ id: 'noun1', status: 'exists', confidence: 'high' }),
+      nounCheck({
+        id: 'noun2',
+        name: '脑机接口系统NEO',
+        status: 'uncertain',
+        evidence: '仅检索到一个来源，尚不足以确认该名词存在，需人工确认。',
+        needsHuman: true,
+      }),
+      nounCheck({
+        id: 'noun3',
+        name: '虚假机构',
+        status: 'not_found',
+        evidence: '检索完成但未找到匹配来源；不能据此判定该名词不存在，需人工确认。',
+        sources: [],
+        needsHuman: true,
+      }),
+      nounCheck({
+        id: 'noun4',
+        name: '未核实术语',
+        status: 'not_checked',
+        evidence: '超出本次名词核查预算，未完成联网核查。',
+        sources: [],
+      }),
+    ]
+    const markdown = renderReportMarkdown(
+      report({ nounChecks: checks, summary: summary({ nounCheck: nounSummary() }) }),
+      [article()],
+    )
+    expect(markdown).toContain('## 名词核查')
+    expect(markdown).toContain('| 名词 | 状态 | 依据/来源 |')
+    expect(nounSection(markdown)).toContain('| 复旦大学附属华山医院 | 有网络收录 |')
+    expect(nounSection(markdown)).toContain('| 脑机接口系统NEO | 证据不足 |')
+    expect(nounSection(markdown)).toContain('| 虚假机构 | 未找到来源 |')
+    expect(nounSection(markdown)).toContain('| 未核实术语 | 未核查 |')
+    expect(nounSection(markdown)).toContain('[来源](https://example.com/huashan)')
+    expect(nounSection(markdown)).toContain('需人工确认')
+    // Missing evidence is never rendered as a non-existence verdict: the only
+    // "不存在" is the explicit caution that it cannot be claimed.
+    expect(nounSection(markdown)).not.toMatch(/\| 不存在 \|/)
+    expect(nounSection(markdown)).toContain('不能据此判定该名词不存在')
+    // The section keeps the documented order: facts → nouns → must-fix.
+    const facts = markdown.indexOf('## 事实核查清单')
+    const nouns = markdown.indexOf('## 名词核查')
+    const mustFix = markdown.indexOf('## 必须修改的条目')
+    expect(facts).toBeGreaterThanOrEqual(0)
+    expect(nouns).toBeGreaterThan(facts)
+    expect(mustFix).toBeGreaterThan(nouns)
+  })
+
+  it('says 未发现可核查名词 when a new report has an empty noun checklist', () => {
+    const markdown = renderReportMarkdown(
+      report({ nounChecks: [], summary: summary({ nounCheck: nounSummary() }) }),
+      [article()],
+    )
+    expect(markdown).toContain('## 名词核查')
+    expect(markdown).toContain('未发现可核查名词。')
+    expect(markdown).not.toContain('| 名词 | 状态 |')
+  })
+
+  it('says the nouns were not checked when the nouns role failed', () => {
+    const markdown = renderReportMarkdown(
+      report({
+        nounChecks: [],
+        failedRoles: [failedRole({ role: 'nouns', error: 'provider refused' })],
+        summary: summary({ nounCheck: nounSummary() }),
+      }),
+      [article()],
+    )
+    expect(markdown).toContain('## 未完成角色（未核查提示）')
+    expect(markdown).toContain('名词核查')
+    expect(nounSection(markdown)).toContain('名词核查角色未完成，不能视为未发现可核查名词。')
+    // No standalone "未发现可核查名词。" empty-state line is rendered.
+    expect(nounSection(markdown).split('\n').map((line) => line.trim())).not.toContain(
+      '未发现可核查名词。',
+    )
+  })
+
+  it('omits the noun section entirely for legacy reports without noun data', () => {
+    const markdown = renderReportMarkdown(report(), [article()])
+    expect(markdown).not.toContain('## 名词核查')
+    expect(markdown).not.toContain('未发现可核查名词。')
+  })
+
+  it('escapes pipes and newlines in noun table cells', () => {
+    const markdown = renderReportMarkdown(
+      report({
+        nounChecks: [
+          nounCheck({ name: 'A|B', evidence: '第一行\n第二行' }),
+        ],
+        summary: summary({ nounCheck: nounSummary() }),
+      }),
+      [article()],
+    )
+    expect(markdown).toContain('| A\\|B |')
+    expect(markdown).toContain('第一行 第二行')
+    const row = lineWith(markdown, 'A\\|B')
+    expect(row.startsWith('|')).toBe(true)
+    expect(row.endsWith('|')).toBe(true)
+    // 3 columns => 4 unescaped pipes.
+    expect(row.match(/(?<!\\)\|/g)).toHaveLength(4)
   })
 })
 

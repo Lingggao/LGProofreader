@@ -6,7 +6,7 @@
 
 把单页报纸 PDF 上传到插件后，插件会识别报头、报脚、头条、二条、三条、正文、图片/图说、广告等版面区域，按阅读顺序抽取每篇文章的完整文本；随后由用户显式选择单篇、多篇或本页全部文章，在后台用多个校对角色并行审校，并输出可逐条处理的问题清单与事实核查清单。全程不创建聊天会话、不展示提示词。
 
-> 当前版本：`0.1.0`。详细变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+> 当前版本：`1.0.0`。详细变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 功能
 
@@ -14,8 +14,9 @@
 - **版面理解**：候选区块 → 一次视觉分区（只输出分类/分组，不转录正文）→ 确定性文字回填；报头/报脚/广告默认不参与校对。
 - **人工校正**：移动/缩放/合并/拆分区域、改区域类型与文章归属、调整阅读顺序、撤销/重做（≥20 步）、编辑文章标题/署名/正文；所有修改只写入插件数据目录，不写回 PDF。
 - **显式触发校对**：上传/分析完成后只到 `ready`，必须勾选文章或「本页全部」并确认才开始，绝不自动校对。
-- **多角色后台校对**：通读、字词、成语词语、标点规范、标题导语、一致性、事实核查，深度预设（快速/标准/深度），单角色失败或超时不阻塞整个任务，可取消、可重试。
+- **多角色后台校对**：通读、字词、成语词语、标点规范、标题导语、一致性、事实核查，以及独立的**联网名词核查**；深度预设（快速/标准/深度），单角色失败或超时不阻塞整个任务，可取消、可重试。
 - **事实核查应查尽查**：逐项联网核验，输出已核实/有冲突/未核实/证据不足/未检查清单，带来源；无来源不判错。
+- **联网名词核查**：与事实核查并行，使用独立角色、独立子 Agent 和独立超时；只核查机构/公司/产品/系统/项目/地名/人名头衔/特定术语是否真实存在于网络、是否有媒体或百科收录，不判断句子真假；实时列出计划名词、已检索/已核查数量和状态，报告中附来源清单。
 - **报告**：不输出改写全文，只列「申请修改哪里、怎样修改」；必改/建议/可选分级，结尾附必须修改条目；支持复制/下载 Markdown 与 JSON。
 - **状态与隐私**：左侧栏入口，点开占满 DSH 主窗口；浅色/深色主题；不创建 Agent/会话，不写 session log。
 
@@ -23,7 +24,7 @@
 
 Release 同时提供两种安装包：
 
-- **`.tgz`（推荐）**：DSH 侧栏 **Plugins → Add plugin**，粘贴 release 资产 URL 或本地绝对路径（例如 `C:\...\LGProofreader-0.1.0.tgz`）→ Install；
+- **`.tgz`（推荐）**：DSH 侧栏 **Plugins → Add plugin**，粘贴 release 资产 URL 或本地绝对路径（例如 `C:\...\LGProofreader-1.0.0.tgz`）→ Install；
 - **`.zip`**：解压到固定目录（例如 `C:\Plugins\LGProofreader`）后，在 **Add plugin** 中粘贴含 `package.json` 的目录绝对路径 → Install。
 
 DSH 的 Add plugin 不支持直接输入 `.zip`，`.zip` 只是下载/解压容器。本版本**针对 DSH Desktop `0.2.2-rc.5` 开发和构建**（`package.json` 的 `engines.dsh` 限定 `>=0.2.2-rc.5 <0.3.0`）。
@@ -41,7 +42,7 @@ DSH 的 Add plugin 不支持直接输入 `.zip`，`.zip` 只是下载/解压容�
 ## 数据与隐私
 
 - PDF、页面图、版面、提示词覆盖项与校对报告只保存在本机 DSH profile 的 `plugin-data/lgproofreader/` 下，不写入仓库、不上传云端；
-- 校对时文章文本与页面图会发送给配置的模型 provider；开启联网事实核查时，事实关键词会发送给搜索 provider（不发送整篇文章）；
+- 校对时文章文本与页面图会发送给配置的模型 provider；开启联网核查时，事实关键词与名词查询词会分别发送给搜索 provider（不发送整篇文章）；
 - 插件不保存 API Key；模型/搜索凭据由 DSH 的 provider 配置管理；
 - 提示词只在 Host 读取与使用，不会通过 API、Client bundle、报告或日志下发到浏览器；
 - `.gitignore` 已排除数据目录、PDF、日志与 release 产物。
@@ -103,8 +104,8 @@ pnpm release
 
 产物：
 
-- `release/LGProofreader-0.1.0.zip`：解压后为 `LGProofreader/` 目录，内容与 `.tgz` 一致；
-- `release/LGProofreader-0.1.0.tgz`：npm 兼容安装包，可直接作为 Add plugin 目标；
+- `release/LGProofreader-1.0.0.zip`：解压后为 `LGProofreader/` 目录，内容与 `.tgz` 一致；
+- `release/LGProofreader-1.0.0.tgz`：npm 兼容安装包，可直接作为 Add plugin 目标；
 - `release/SHA256SUMS.txt`：两个产物的 SHA-256。
 
 归档只包含安装所需文件（`package.json`、`cordis.patch.yml`、`icon.png`、`lib/`、`locale/`、`prompts/`、详情页文档、README/CHANGELOG/LICENSE/THIRD_PARTY_NOTICES），**不包含** `src/`、`assets/`、`tests/`、`scripts/`、`node_modules/`、内部设计文档与历史 release。发布与 push 由仓库所有者自行完成。
@@ -115,10 +116,10 @@ pnpm release
 
 1. 打开仓库 **Actions** 页；
 2. 左侧选择 **Release plugin package**；
-3. 点击 **Run workflow**，`version` 填 `0.1.0`（不带 `v`），再点 **Run workflow**；
+3. 点击 **Run workflow**，`version` 填 `1.0.0`（不带 `v`），再点 **Run workflow**；
 4. 工作流会自动跑 typecheck、test、build、validate、release，并把
-   `LGProofreader-0.1.0.tgz`、`.zip`、`SHA256SUMS.txt` 直接发布到
-   GitHub Releases 的 **v0.1.0**。
+   `LGProofreader-1.0.0.tgz`、`.zip`、`SHA256SUMS.txt` 直接发布到
+   GitHub Releases 的 **v1.0.0**。
 
 工作流只使用 GitHub 自带的 `GITHUB_TOKEN`（`contents: write`），不需要在仓库里配置任何 API key 或 secret。发布新版本时同步修改 `package.json`、`docs/releases/vX.Y.Z.md` 和 workflow 输入中的版本号即可。
 
@@ -129,4 +130,4 @@ pnpm release
 
 ## 验证
 
-- 2026-11-20 完整测试：841 tests；真实浏览器 10/10 样张 ready；UI、取消、错误路径与联网核查进度均通过。脱敏后的测试摘要见 [`docs/testing.md`](docs/testing.md)。
+- 2026-11-21 v1.0.0：915 tests；真实浏览器验证独立名词核查进度/报告、PDF 区域框去除置信度、事实核查进度和取消路径。脱敏后的测试摘要见 [`docs/testing.md`](docs/testing.md)。

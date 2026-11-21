@@ -13,14 +13,16 @@
  * 2. sort each article's findings by severity (`must_fix → suggested → optional`)
  *    and then by the quote's position in the article body, so the report order is
  *    deterministic even when the consolidator's order is not;
- * 3. prefix every finding id with the article id (`a1:f1`) and every fact-check id
- *    the same way (`a1:fc1`), because each role/parser restarts its local ids and
- *    a page report contains several articles;
- * 4. build the page summary: severity/category counts, fact-check verdict counts,
- *    and the deterministic "必须修改的条目" list;
+ * 3. prefix every finding id with the article id (`a1:f1`), every fact-check id
+ *    the same way (`a1:fc1`) and every noun-check id the same way (`a1:noun1`),
+ *    because each role/parser restarts its local ids and a page report contains
+ *    several articles;
+ * 4. build the page summary: severity/category counts, fact-check verdict
+ *    counts, existence-only noun-check counts, and the deterministic
+ *    "必须修改的条目" list;
  * 5. carry the failed-role list through unchanged (omitted when empty), so a
- *    partial report is explicit: a failed `facts` role means “not checked”, never
- *    “未发现可核查项” (Task 21f).
+ *    partial report is explicit: a failed `facts`/`nouns` role means “not
+ *    checked”, never “未发现可核查项”/“未发现可核查名词” (Task 21f).
  *
  * The renderer (Task 7) keeps `report.findings` order, so this module owns the
  * documented ordering.
@@ -32,6 +34,7 @@ import type {
   FactCheck,
   Finding,
   JobId,
+  NounCheck,
   Report,
   ReportRoleFailure,
 } from '../../shared/types'
@@ -160,6 +163,12 @@ export interface ReportArticleInput {
   findings: readonly Finding[]
   /** Fact checks from the `facts` role, in extraction order. */
   factChecks: readonly FactCheck[]
+  /**
+   * Noun checks from the independent `nouns` role, in priority plan order.
+   * Optional so old fixtures/callers that only know fact checks still compile;
+   * it defaults to no noun checks.
+   */
+  nounChecks?: readonly NounCheck[]
 }
 
 /** Everything {@link buildReport} needs; assembled by the orchestrator. */
@@ -253,6 +262,12 @@ function buildSummary(
       insufficient: 0,
       notChecked: 0,
     },
+    nounCheck: {
+      exists: 0,
+      uncertain: 0,
+      notFound: 0,
+      notChecked: 0,
+    },
     byCategory: countByCategory(findings),
     mustFixList,
   }
@@ -279,6 +294,31 @@ function fillFactCheckSummary(
         break
       case 'not_checked':
         summary.factCheck.notChecked += 1
+        break
+    }
+  }
+}
+
+/** Count every existence-only noun check into the report summary shape. */
+function fillNounCheckSummary(
+  summary: Report['summary'],
+  nounChecks: readonly NounCheck[],
+): void {
+  const counts = summary.nounCheck
+  if (counts === undefined) return
+  for (const check of nounChecks) {
+    switch (check.status) {
+      case 'exists':
+        counts.exists += 1
+        break
+      case 'uncertain':
+        counts.uncertain += 1
+        break
+      case 'not_found':
+        counts.notFound += 1
+        break
+      case 'not_checked':
+        counts.notChecked += 1
         break
     }
   }
@@ -316,13 +356,15 @@ function normalizeFailedRoles(
  * Article order follows `input.articles` (the user's selection order). Each
  * article's findings are sorted and renumbered (`f1…`); ids are prefixed with the
  * article id so they stay unique across the page. Fact checks keep their `facts`
- * extraction order and are prefixed the same way. Failed roles are carried
- * through verbatim (field omitted when none), so an empty result is never
+ * extraction order and noun checks their priority plan order; both are prefixed
+ * the same way and always emitted (`[]` for an empty run). Failed roles are
+ * carried through verbatim (field omitted when none), so an empty result is never
  * silently presented as a complete check.
  */
 export function buildReport(input: BuildReportInput): Report {
   const findings: Finding[] = []
   const factChecks: FactCheck[] = []
+  const nounChecks: NounCheck[] = []
   const articleTitles = new Map<string, string>()
 
   for (const entry of input.articles) {
@@ -339,10 +381,14 @@ export function buildReport(input: BuildReportInput): Report {
     for (const check of entry.factChecks) {
       factChecks.push({ ...check, id: `${articleId}:${check.id}`, articleId })
     }
+    for (const check of entry.nounChecks ?? []) {
+      nounChecks.push({ ...check, id: `${articleId}:${check.id}`, articleId })
+    }
   }
 
   const summary = buildSummary(articleTitles, findings)
   fillFactCheckSummary(summary, factChecks)
+  fillNounCheckSummary(summary, nounChecks)
 
   const report: Report = {
     jobId: input.jobId,
@@ -356,6 +402,7 @@ export function buildReport(input: BuildReportInput): Report {
     summary,
     findings,
     factChecks,
+    nounChecks,
     stats: input.stats,
   }
   const failedRoles = normalizeFailedRoles(input.failedRoles)

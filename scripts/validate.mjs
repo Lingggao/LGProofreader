@@ -55,6 +55,7 @@ const PROMPT_ROLES = [
   'idioms',
   'style',
   'facts',
+  'nouns',
   'headline',
   'consistency',
   'consolidator',
@@ -65,6 +66,7 @@ const PROMPT_CONTRACTS = [
   'findings.schema.json',
   'claims.schema.json',
   'factchecks.schema.json',
+  'nouns.schema.json',
   'layout.schema.json',
 ]
 
@@ -541,7 +543,7 @@ async function checkPrompts() {
   }
 
   // The role list is the cross-task contract: every documented role has a file.
-  expectTrue(PROMPT_ROLES.length === 8, 'the prompt role inventory must stay at 8 roles')
+  expectTrue(PROMPT_ROLES.length === 9, 'the prompt role inventory must stay at 9 roles')
 }
 
 /* ------------------------------------------------------------------------- */

@@ -238,6 +238,45 @@ export const zh = {
   'fact.status.checked': '已核查',
   'fact.status.not_checked': '未核查',
 
+  // Network noun checking (v1.0.0): the independent `nouns` role has its own
+  // plan/progress and report checklist. `not_found` only means the current
+  // sources did not include the term — the copy never asserts “不存在”.
+  'noun.plan.title': '名词核查计划',
+  'noun.plan.needed': '需要核查 {total} 个名词',
+  'noun.plan.searched': '已检索 {searched} 个',
+  'noun.plan.checked': '已核查 {checked} 个',
+  'noun.plan.notChecked': '未核查 {notChecked} 个',
+  'noun.plan.phase': '阶段：{phase}',
+  'noun.plan.elapsed': '已耗时 {elapsed}',
+  'noun.plan.listLabel': '待核查名词（按优先级）',
+  'noun.plan.empty': '未发现需要核查的名词',
+  'noun.phase.planning': '规划中',
+  'noun.phase.searching': '检索中',
+  'noun.phase.verifying': '判定中',
+  'noun.phase.done': '已完成',
+  'noun.status.pending': '待核查',
+  'noun.status.searching': '检索中',
+  'noun.status.searched': '已检索',
+  'noun.status.verifying': '判定中',
+  'noun.status.checked': '已核查',
+  'noun.status.not_checked': '未核查',
+  'noun.result.exists': '有网络收录',
+  'noun.result.uncertain': '证据不足',
+  'noun.result.not_found': '未找到',
+  'noun.result.not_checked': '未核查',
+  'noun.kind.organization': '机构',
+  'noun.kind.company': '公司',
+  'noun.kind.institution': '院校/院所',
+  'noun.kind.place': '地点',
+  'noun.kind.product': '产品',
+  'noun.kind.system': '系统',
+  'noun.kind.project': '项目',
+  'noun.kind.event': '事件',
+  'noun.kind.person': '人物',
+  'noun.kind.title': '职务',
+  'noun.kind.technical_term': '专业术语',
+  'noun.kind.other': '其他',
+
   // Report summary, findings and actions (Task 19; design §7.6/§9.4).
   'report.title': '校对报告',
   'report.summary': '报告摘要',
@@ -321,6 +360,7 @@ export const zh = {
   'report.role.idioms': '成语',
   'report.role.style': '规范',
   'report.role.facts': '事实',
+  'report.role.nouns': '名词核查',
   'report.role.headline': '标题',
   'report.role.consistency': '一致性',
   'report.role.consolidator': '汇总',
@@ -352,6 +392,26 @@ export const zh = {
   'report.fact.verdict': '结论',
   'report.fact.basis': '依据/来源',
   'report.fact.occurrence': '第 {occurrence} 处',
+
+  // Network noun-check report section (v1.0.0). “未找到” is scoped to the
+  // sources actually retrieved; the disclaimer deliberately avoids the word
+  // “不存在”.
+  'report.noun.title': '名词核查',
+  'report.noun.total': '共 {total} 个名词',
+  'report.noun.exists': '有网络收录 {exists}',
+  'report.noun.uncertain': '证据不足 {uncertain}',
+  'report.noun.notFound': '未找到 {notFound}',
+  'report.noun.notChecked': '未核查 {notChecked}',
+  'report.noun.name': '名词',
+  'report.noun.kind': '类型',
+  'report.noun.quote': '原文引用',
+  'report.noun.status': '结论',
+  'report.noun.basis': '依据/来源',
+  'report.noun.disclaimer': '“未找到”仅表示当前检索来源中未收录，请人工确认。',
+  'report.noun.summaryExists': '名词已收录',
+  'report.noun.summaryNotFound': '名词未找到',
+  'report.noun.summaryUncertain': '名词证据不足',
+  'report.noun.summaryNotChecked': '名词未核查',
 
   // Failed-role warnings (Task 21f): a failed role is “not checked”, never an
   // empty result, so the fact checklist empty state must say so explicitly.
@@ -598,6 +658,45 @@ export const en = {
   'fact.status.checked': 'Checked',
   'fact.status.not_checked': 'Not checked',
 
+  // Network noun checking (v1.0.0): the independent `nouns` role has its own
+  // plan/progress and report checklist. `not_found` only means the current
+  // sources did not include the term — the copy never asserts it does not exist.
+  'noun.plan.title': 'Noun-check plan',
+  'noun.plan.needed': 'Nouns to check: {total}',
+  'noun.plan.searched': 'Searched: {searched}',
+  'noun.plan.checked': 'Checked: {checked}',
+  'noun.plan.notChecked': 'Not checked: {notChecked}',
+  'noun.plan.phase': 'Phase: {phase}',
+  'noun.plan.elapsed': 'Elapsed {elapsed}',
+  'noun.plan.listLabel': 'Nouns to check (by priority)',
+  'noun.plan.empty': 'No nouns to check',
+  'noun.phase.planning': 'Planning',
+  'noun.phase.searching': 'Searching',
+  'noun.phase.verifying': 'Classifying',
+  'noun.phase.done': 'Done',
+  'noun.status.pending': 'Pending',
+  'noun.status.searching': 'Searching',
+  'noun.status.searched': 'Searched',
+  'noun.status.verifying': 'Classifying',
+  'noun.status.checked': 'Checked',
+  'noun.status.not_checked': 'Not checked',
+  'noun.result.exists': 'Found online',
+  'noun.result.uncertain': 'Insufficient evidence',
+  'noun.result.not_found': 'Not found',
+  'noun.result.not_checked': 'Not checked',
+  'noun.kind.organization': 'Organization',
+  'noun.kind.company': 'Company',
+  'noun.kind.institution': 'Institution',
+  'noun.kind.place': 'Place',
+  'noun.kind.product': 'Product',
+  'noun.kind.system': 'System',
+  'noun.kind.project': 'Project',
+  'noun.kind.event': 'Event',
+  'noun.kind.person': 'Person',
+  'noun.kind.title': 'Title',
+  'noun.kind.technical_term': 'Technical term',
+  'noun.kind.other': 'Other',
+
   // Report summary, findings and actions (Task 19; design §7.6/§9.4).
   'report.title': 'Proofreading report',
   'report.summary': 'Report summary',
@@ -681,6 +780,7 @@ export const en = {
   'report.role.idioms': 'Idioms',
   'report.role.style': 'Style',
   'report.role.facts': 'Facts',
+  'report.role.nouns': 'Noun checks',
   'report.role.headline': 'Headline',
   'report.role.consistency': 'Consistency',
   'report.role.consolidator': 'Consolidation',
@@ -713,6 +813,26 @@ export const en = {
   'report.fact.verdict': 'Verdict',
   'report.fact.basis': 'Evidence / sources',
   'report.fact.occurrence': 'Occurrence {occurrence}',
+
+  // Network noun-check report section (v1.0.0). “Not found” is scoped to the
+  // sources actually retrieved; the disclaimer never asserts non-existence.
+  'report.noun.title': 'Noun checks',
+  'report.noun.total': '{total} noun(s)',
+  'report.noun.exists': 'Found online: {exists}',
+  'report.noun.uncertain': 'Insufficient evidence: {uncertain}',
+  'report.noun.notFound': 'Not found: {notFound}',
+  'report.noun.notChecked': 'Not checked: {notChecked}',
+  'report.noun.name': 'Noun',
+  'report.noun.kind': 'Kind',
+  'report.noun.quote': 'Quote',
+  'report.noun.status': 'Result',
+  'report.noun.basis': 'Evidence / sources',
+  'report.noun.disclaimer':
+    '“Not found” only means the current search sources did not include the term; please confirm manually.',
+  'report.noun.summaryExists': 'Nouns found online',
+  'report.noun.summaryNotFound': 'Nouns not found',
+  'report.noun.summaryUncertain': 'Nouns with weak evidence',
+  'report.noun.summaryNotChecked': 'Nouns not checked',
 
   // Failed-role warnings (Task 21f): a failed role is “not checked”, never an
   // empty result, so the fact checklist empty state must say so explicitly.

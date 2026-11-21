@@ -14,11 +14,17 @@
  * Task 29: while the `facts` role runs, the Host additionally emits the live
  * exhaustive fact-check plan as `job.factProgress`; it is rendered by the
  * `FactProgress` child (ordered claims, counts and phase) right in this panel.
+ *
+ * v1.0.0: the independent `nouns` role runs in parallel with `facts` and streams
+ * its own plan as `job.nounProgress`; `NounProgress` renders it below the
+ * fact-check plan (counts, phase/elapsed and priority-ordered nouns). The two
+ * plans are independent, so a job may carry either, both or neither.
  */
 import { defaultTranslate, type Translate } from '../locale'
 import type { JobView } from '../../shared/api/protocol'
 import type { StageState } from '../../shared/types'
 import { FactProgress } from './FactProgress'
+import { NounProgress } from './NounProgress'
 
 /** Localized keys of the job statuses. */
 const JOB_STATUS_KEYS: Record<JobView['status'], string> = {
@@ -92,6 +98,9 @@ export function JobProgress({ job, t = defaultTranslate }: JobProgressProps) {
       ) : null}
       {job.factProgress === undefined ? null : (
         <FactProgress progress={job.factProgress} t={t} />
+      )}
+      {job.nounProgress === undefined ? null : (
+        <NounProgress progress={job.nounProgress} t={t} />
       )}
       {stages.length === 0 ? null : (
         <ol className="lgp-job-stages">

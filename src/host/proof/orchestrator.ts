@@ -20,18 +20,22 @@
  *   aborts the shared `AbortController` and reports `true` exactly once;
  * - a single role failure is recorded on its stage and never blocks the other
  *   roles or the job (Review Focus 5); each role attempt is retried once and is
- *   bounded by `perCallTimeoutMs` (default 300 s, design §7.5). The `facts` role
- *   gets a longer 600 s bound (Task 21d) because it extracts claims and runs the
- *   network verification searches; the consolidator always stays within the
- *   general bound;
+ *   bounded by `perCallTimeoutMs` (default 300 s, design §7.5). The network roles
+ *   get longer, fixed ceilings: the `facts` role 13 min (Task 21d) because it
+ *   extracts claims and runs the network verification searches, and the
+ *   independent `nouns` role 9 min (existence-only planning + web searches). A
+ *   network role timeout is final (never retried) so the user-visible ceiling
+ *   cannot double; the consolidator always stays within the general bound;
  * - role results are cached in memory and under
  *   `reports/<jobId>/<articleId>/<role>.json` with the key
  *   `articleId|role|promptVersion|model|articleTextHash`; a cache hit skips the
- *   model call, a changed text/prompt/model misses;
- * - the `facts` role always runs (every depth), using the depth budget and a
- *   `saveEvidence` sink that writes `facts-evidence.json`; with the network
- *   switch off the web seam is replaced by an always-failing stub so every claim
- *   still ends up `unverified` instead of the role being skipped;
+ *   model call, a changed text/prompt/model misses, and the network roles
+ *   (`facts`, `nouns`) also key on depth + network mode;
+ * - the `facts` and `nouns` roles run at every depth, using the depth budgets
+ *   and a `saveEvidence` sink that writes `facts-evidence.json`; with the network
+ *   switch off the web seam is replaced by an always-failing stub so fact claims
+ *   still end up `unverified` and nouns end up `not_checked` instead of the roles
+ *   being skipped;
  * - a failed role is listed explicitly in `Report.failedRoles`
  *   (`articleId`/`role`/`error`), so a partial report can never pretend the role
  *   ran (Task 21f): an empty fact checklist from a failed `facts` role is “not
@@ -53,6 +57,9 @@ import type {
   FactCheckProgressPhase,
   Finding,
   JobId,
+  NounCheck,
+  NounProgress,
+  NounProgressItem,
   Report,
   ReportRoleFailure,
   RoleId,
@@ -76,6 +83,7 @@ import {
   articleCacheText,
   createRoleRunner,
   factBudgetForDepth,
+  nounBudgetForDepth,
   readCachedRoleResult,
   roleCacheKey,
   rolesForDepth,
@@ -90,6 +98,11 @@ import {
   FACT_SOFT_STOP_MS,
   type FactCheckProgressUpdate,
 } from './facts'
+import {
+  NOUN_HARD_STOP_MS,
+  NOUN_SOFT_STOP_MS,
+  type NounProgressUpdate,
+} from './nouns'
 
 /* ------------------------------------------------------------------------- */
 /* Contracts                                                                   */
@@ -111,6 +124,8 @@ export interface JobState {
   stages: StageState[]
   /** Live network fact-check plan/progress while the facts role is running. */
   factProgress?: FactCheckProgress
+  /** Live network noun-check plan/progress while the nouns role is running. */
+  nounProgress?: NounProgress
   /** Layout: `{ regions, articles, warnings }`; proofread: the final `Report`. */
   result?: unknown
   error?: string
@@ -131,9 +146,9 @@ export interface OrchestratorDeps {
   /**
    * Timeout of one general role attempt (design §7.5; Task 21d default: 300 s,
    * configurable). Missing or non-positive values fall back to
-   * {@link DEFAULT_PER_CALL_TIMEOUT_MS}. The `facts` role always gets at least
-   * {@link FACTS_PER_CALL_TIMEOUT_MS} (600 s) because it extracts claims and runs
-   * the web verification searches.
+   * {@link DEFAULT_PER_CALL_TIMEOUT_MS}. The `facts` role always gets
+   * {@link FACTS_PER_CALL_TIMEOUT_MS} (780 s) and the `nouns` role
+   * {@link NOUN_PER_CALL_TIMEOUT_MS} (540 s) because they run network searches.
    */
   perCallTimeoutMs?: number
   /**
@@ -174,7 +189,7 @@ export class JobCancelledError extends Error {
 
 /**
  * Raised internally when one role attempt exceeds its attempt timeout (the
- * general `perCallTimeoutMs`, or the longer `facts` bound).
+ * general `perCallTimeoutMs`, or a network role's longer bound).
  */
 export class RoleTimeoutError extends Error {
   readonly timeoutMs: number
@@ -202,6 +217,12 @@ export const DEFAULT_PER_CALL_TIMEOUT_MS = 300_000
  * stop is 12 min; 13 min is the program-level ceiling with one minute of slack.
  */
 export const FACTS_PER_CALL_TIMEOUT_MS = 780_000
+/**
+ * Timeout of one independent `nouns` role attempt: one planning call plus the
+ * Host web searches. The internal soft stop is 7 min and the internal hard stop
+ * is 8 min; 9 min is the program-level ceiling with one minute of slack.
+ */
+export const NOUN_PER_CALL_TIMEOUT_MS = 540_000
 /** Initial attempt plus exactly one retry (design §7.5). */
 const MAX_ROLE_ATTEMPTS = 2
 /** How many previously completed jobs of a document seed the role cache. */
@@ -237,6 +258,7 @@ interface ArticleWork {
   article: Article
   merged: Finding[]
   factChecks: FactCheck[]
+  nounChecks: NounCheck[]
 }
 
 /* ------------------------------------------------------------------------- */
@@ -281,16 +303,18 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
   /**
    * Timeout of one worker-role attempt.
    *
-   * The `facts` role extracts every claim and then runs a web search/fetch stage
-   * per claim, so it gets a longer bound (Task 21d: 600 s). A configured larger
-   * general bound still wins; the consolidator deliberately uses
-   * {@link perCallTimeoutMs} only.
+   * The network roles extract a plan and then run web searches, so they get
+   * fixed longer bounds: `facts` 13 min (Task 21d) and `nouns` 9 min. A
+   * configured larger general bound still wins for the text roles; the
+   * consolidator deliberately uses {@link perCallTimeoutMs} only.
    */
   function roleAttemptTimeoutMs(role: RoleId): number {
     const general = perCallTimeoutMs()
-    // Facts owns a fixed 13-minute ceiling (11-minute soft stop + slack);
-    // a larger general setting must not extend the network role.
-    return role === 'facts' ? FACTS_PER_CALL_TIMEOUT_MS : general
+    // A network role owns a fixed ceiling (soft stop + hard stop + slack); a
+    // larger general setting must not extend it.
+    if (role === 'facts') return FACTS_PER_CALL_TIMEOUT_MS
+    if (role === 'nouns') return NOUN_PER_CALL_TIMEOUT_MS
+    return general
   }
 
   /**
@@ -608,9 +632,17 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
       return { meta: document.meta, articles, preloaded }
     })
 
-    const runner = createJobRoleRunner(job, input, callStats, (update) => {
-      mergeFactProgress(update)
-    })
+    const runner = createJobRoleRunner(
+      job,
+      input,
+      callStats,
+      (update) => {
+        mergeFactProgress(update)
+      },
+      (update) => {
+        mergeNounProgress(update)
+      },
+    )
     const context = buildArticleContext(loaded.meta)
     const roles = rolesForDepth(input.depth)
     const roleResults = new Map<string, RoleRunResult>()
@@ -656,6 +688,47 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
       }
     }
 
+    // Aggregate live noun plans the same way: one priority-ordered snapshot over
+    // every article's independent nouns role.
+    const nounItems = new Map<string, NounProgressItem>()
+    const nounPhases = new Map<string, FactCheckProgressPhase>()
+    const nounStartedAt = new Map<string, number>()
+    const nounSoftDeadlineAt = new Map<string, number>()
+    const nounHardDeadlineAt = new Map<string, number>()
+
+    function mergeNounProgress(update: NounProgressUpdate): void {
+      for (const item of update.items) nounItems.set(item.id, item)
+      nounPhases.set(update.articleId, update.phase)
+      nounStartedAt.set(update.articleId, update.startedAt)
+      nounSoftDeadlineAt.set(update.articleId, update.softDeadlineAt)
+      nounHardDeadlineAt.set(update.articleId, update.hardDeadlineAt)
+      const items = [...nounItems.values()].sort(
+        (left, right) =>
+          left.priority - right.priority ||
+          left.articleId.localeCompare(right.articleId) ||
+          left.id.localeCompare(right.id),
+      )
+      const phases = [...nounPhases.values()]
+      const phase: FactCheckProgressPhase = phases.includes('searching')
+        ? 'searching'
+        : phases.includes('verifying')
+          ? 'verifying'
+          : phases.includes('planning')
+            ? 'planning'
+            : 'done'
+      job.state.nounProgress = {
+        total: items.length,
+        searched: items.filter((item) => item.searched).length,
+        checked: items.filter((item) => item.status === 'checked').length,
+        notChecked: items.filter((item) => item.status === 'not_checked').length,
+        phase,
+        items,
+        startedAt: Math.min(...nounStartedAt.values()),
+        softDeadlineAt: Math.min(...nounSoftDeadlineAt.values()),
+        hardDeadlineAt: Math.min(...nounHardDeadlineAt.values()),
+      }
+    }
+
     // Phase 1: every role of every article, globally bounded by `concurrency`.
     const roleTasks: { article: Article; role: RoleId }[] = []
     for (const article of loaded.articles) {
@@ -671,24 +744,26 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
         delete stage.error
         refreshProgress(job)
 
-        // The facts result depends on the depth budget and on whether the network
-        // was enabled, so both are part of its cache identity and become a miss on
-        // any mismatch; other roles keep the documented article/role/prompt/model/
-        // text identity.
-        const factsIdentity: CachedRoleIdentity =
-          task.role === 'facts' ? { depth: input.depth, factCheck: input.factCheck } : {}
+        // A network role's result depends on the depth budget and on whether the
+        // network was enabled, so both are part of its cache identity and become
+        // a miss on any mismatch; other roles keep the documented article/role/
+        // prompt/model/text identity.
+        const networkIdentity: CachedRoleIdentity =
+          task.role === 'facts' || task.role === 'nouns'
+            ? { depth: input.depth, factCheck: input.factCheck }
+            : {}
         const cacheKey = roleCacheKey({
           articleId: task.article.id,
           role: task.role,
           promptVersion: deps.prompts.version,
           model: modelLabel(),
           text: articleCacheText(task.article),
-          ...factsIdentity,
+          ...networkIdentity,
         })
         const cached = findCachedRoleResult(
           memoryCache,
           loaded.preloaded.get(task.article.id)?.[task.role],
-          { cacheKey, role: task.role, ...factsIdentity },
+          { cacheKey, role: task.role, ...networkIdentity },
         )
         if (cached !== undefined) {
           memoryCache.set(cacheKey, cached)
@@ -714,7 +789,7 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
           task.role,
           cacheKey,
           outcome.value,
-          factsIdentity,
+          networkIdentity,
         )
         stage.status = 'done'
         refreshProgress(job)
@@ -726,13 +801,15 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
     const articleWork: ArticleWork[] = loaded.articles.map((article) => {
       const findings: Finding[] = []
       const factChecks: FactCheck[] = []
+      const nounChecks: NounCheck[] = []
       for (const role of roles) {
         const result = roleResults.get(roleTaskKey(article.id, role))
         if (result === undefined) continue
         findings.push(...result.findings)
         if (result.factChecks !== undefined) factChecks.push(...result.factChecks)
+        if (result.nounChecks !== undefined) nounChecks.push(...result.nounChecks)
       }
-      return { article, merged: mergeArticleFindings(findings), factChecks }
+      return { article, merged: mergeArticleFindings(findings), factChecks, nounChecks }
     })
 
     // Phase 2: one consolidator call per article (skipped when nothing was found).
@@ -795,6 +872,7 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
             article: work.article,
             findings: finalFindings.get(work.article.id) ?? work.merged,
             factChecks: work.factChecks,
+            nounChecks: work.nounChecks,
           }),
         ),
         failedRoles,
@@ -810,21 +888,27 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
     input: { docId: string; depth: Depth; factCheck: boolean },
     callStats: CallStats,
     onFactProgress: (update: FactCheckProgressUpdate) => void,
+    onNounProgress: (update: NounProgressUpdate) => void,
   ): RoleRunner {
     return createRoleRunner({
       llm: createCountedLlm(deps.llm, callStats),
       // When the deployment declares no web service, never touch the injected
-      // stub: the facts role still runs (mandatory) and produces unverified
-      // verdicts, but the report mode is `unavailable`, not `on`.
+      // stub: the network roles still run (mandatory) and produce unverified
+      // fact checks / not_checked noun checks, but the report mode is
+      // `unavailable`, not `on`.
       web: input.factCheck && webAvailable() ? deps.web : createDisabledWebClient(),
       prompts: deps.prompts,
       factBudget: factBudgetForDepth(input.depth),
+      nounBudget: nounBudgetForDepth(input.depth),
       saveEvidence: (articleId, evidence) =>
         deps.store.saveRoleResult(input.docId, job.state.id, articleId, 'facts-evidence', evidence),
       onFactProgress,
+      onNounProgress,
       now,
       factSoftStopMs: FACT_SOFT_STOP_MS,
       factHardStopMs: FACT_HARD_STOP_MS,
+      nounSoftStopMs: NOUN_SOFT_STOP_MS,
+      nounHardStopMs: NOUN_HARD_STOP_MS,
     })
   }
 
@@ -850,10 +934,10 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
         return { ok: true, value }
       } catch (error) {
         if (job.cancelled || signal.aborted) throw cancellationError(job)
-        // The facts role owns the long (13 min) network budget. Retrying after a
-        // timeout would double the user-visible ceiling, so a facts timeout is
+        // The network roles own long (13/9 min) budgets. Retrying after a timeout
+        // would double the user-visible ceiling, so a network-role timeout is
         // final; ordinary provider errors still get the documented one retry.
-        if (role === 'facts' && error instanceof RoleTimeoutError) {
+        if ((role === 'facts' || role === 'nouns') && error instanceof RoleTimeoutError) {
           return { ok: false, error: describeError(error) }
         }
         lastError = error
@@ -1065,6 +1149,14 @@ export function createJobOrchestrator(deps: OrchestratorDeps): JobOrchestrator {
             factProgress: {
               ...job.state.factProgress,
               items: job.state.factProgress.items.map((item) => ({ ...item })),
+            },
+          }),
+      ...(job.state.nounProgress === undefined
+        ? {}
+        : {
+            nounProgress: {
+              ...job.state.nounProgress,
+              items: job.state.nounProgress.items.map((item) => ({ ...item })),
             },
           }),
     }

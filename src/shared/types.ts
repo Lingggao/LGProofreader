@@ -27,6 +27,7 @@ export type RoleId =
   | 'idioms'
   | 'style'
   | 'facts'
+  | 'nouns'
   | 'headline'
   | 'consistency'
   | 'consolidator'
@@ -274,6 +275,69 @@ export interface FactCheckProgress {
   hardDeadlineAt?: number
 }
 
+/** Kinds of named entities/terms checked by the independent `nouns` role. */
+export type NounCheckKind =
+  | 'organization'
+  | 'company'
+  | 'institution'
+  | 'place'
+  | 'product'
+  | 'system'
+  | 'project'
+  | 'event'
+  | 'person'
+  | 'title'
+  | 'technical_term'
+  | 'other'
+
+/** Existence-only result of the network noun check. */
+export type NounCheckStatus = 'exists' | 'uncertain' | 'not_found' | 'not_checked'
+
+/** One named entity/term and its existence evidence; always listed in the report. */
+export interface NounCheck {
+  id: string
+  articleId: ArticleId
+  /** The noun/term itself (e.g. 复旦大学附属华山医院). */
+  name: string
+  /** Article quote that contains the noun. */
+  quote: string
+  kind: NounCheckKind
+  /** 1 = highest importance; the plan is sorted by this value. */
+  priority: number
+  status: NounCheckStatus
+  evidence?: string
+  sources: { title: string; url: string }[]
+  confidence: Confidence
+  needsHuman: boolean
+}
+
+/** One row in the live noun-check plan. */
+export interface NounProgressItem {
+  id: string
+  articleId: ArticleId
+  name: string
+  quote: string
+  kind: NounCheckKind
+  priority: number
+  searched: boolean
+  status: 'pending' | 'searching' | 'searched' | 'verifying' | 'checked' | 'not_checked'
+  result?: NounCheckStatus
+}
+
+/** Live noun-check plan/progress for one proofreading job. */
+export interface NounProgress {
+  total: number
+  searched: number
+  checked: number
+  notChecked: number
+  phase: FactCheckProgressPhase
+  items: NounProgressItem[]
+  startedAt?: number
+  softDeadlineAt?: number
+  hardDeadlineAt?: number
+}
+
+
 
 /**
  * One role that failed for one article in a proofreading run.
@@ -389,12 +453,21 @@ export interface Report {
       insufficient: number
       notChecked: number
     }
+    /** Existence-only noun-check counts (present on 1.0.0+ reports). */
+    nounCheck?: {
+      exists: number
+      uncertain: number
+      notFound: number
+      notChecked: number
+    }
     byCategory: Record<string, number>
     /** The "必须修改的条目" summary shown at the end of the report. */
     mustFixList: string[]
   }
   findings: Finding[]
   factChecks: FactCheck[]
+  /** Existence-only noun checks (independent `nouns` role; present on 1.0.0+). */
+  nounChecks?: NounCheck[]
   /**
    * Roles that did not finish for the reported articles, with their
    * provider/stage error. Absent or empty means every role finished.

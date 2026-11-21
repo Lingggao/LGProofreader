@@ -21,6 +21,13 @@
  * the summary/findings, and forwarded to `FactCheckList` so a failed `facts` role
  * replaces “未发现可核查项” with an explicit “not checked” state.
  *
+ * v1.0.0 addition: the independent `nouns` role contributes
+ * `Report.nounChecks` / `summary.nounCheck`; `NounCheckList` renders after the
+ * fact checklist (the report layout keeps the existing order, so the noun list
+ * is the last section) and the summary cards show the noun-only totals when the
+ * report carries them. A failed `nouns` role has no dedicated notice here: the
+ * generic `FailedRolesNotice` above already lists it.
+ *
  * The copy action reuses the shared Task 7 Markdown renderer. Nothing here
  * renders prompt text or model reasoning — only findings, verdicts, sources and
  * the prompt version hash.
@@ -32,6 +39,7 @@ import { categoryLabel } from './FindingCard'
 import { FactCheckList, isOfflineFactCheck } from './FactCheckList'
 import { FailedRolesNotice } from './FailedRolesNotice'
 import { InlineMarkdown } from './InlineMarkdown'
+import { NounCheckList } from './NounCheckList'
 import { ReportList } from './ReportList'
 
 /** Localized depth labels, reused from the proofread panel. */
@@ -82,7 +90,7 @@ export interface ReportViewProps {
   t?: Translate
 }
 
-/** Render the report summary, findings list and fact checklist. */
+/** Render the report summary, findings list, fact checklist and noun checklist. */
 export function ReportView({
   report,
   articles = [],
@@ -112,6 +120,14 @@ export function ReportView({
       : []
   const involved = involvedArticleCount(findings)
   const unverified = summary.factCheck?.unverified ?? 0
+  // Noun-check totals are optional (reports persisted before the `nouns` role
+  // existed); when present they are surfaced as extra summary attributes and, if
+  // the run actually checked nouns, as summary cards.
+  const nounSummary = summary.nounCheck
+  const nounTotal =
+    nounSummary === undefined
+      ? 0
+      : nounSummary.exists + nounSummary.uncertain + nounSummary.notFound + nounSummary.notChecked
 
   return (
     <section className="lgp-report" data-lgp-part="report">
@@ -135,6 +151,10 @@ export function ReportView({
         data-lgp-summary-unverified={unverified}
         data-lgp-summary-insufficient={summary.factCheck?.insufficient ?? 0}
         data-lgp-summary-not-checked={summary.factCheck?.notChecked ?? 0}
+        data-lgp-summary-noun-exists={nounSummary?.exists ?? 0}
+        data-lgp-summary-noun-uncertain={nounSummary?.uncertain ?? 0}
+        data-lgp-summary-noun-not-found={nounSummary?.notFound ?? 0}
+        data-lgp-summary-noun-not-checked={nounSummary?.notChecked ?? 0}
         aria-label={t('report.summary')}
       >
         <ul className="lgp-summary-counts">
@@ -143,6 +163,34 @@ export function ReportView({
           <Count stat="suggested" value={summary.suggestedCount} label={t('report.severity.suggested')} />
           <Count stat="optional" value={summary.optionalCount} label={t('report.severity.optional')} />
           <Count stat="unverified" value={unverified} label={t('report.summaryUnverified')} />
+          {nounSummary === undefined || nounTotal === 0 ? null : (
+            <>
+              <Count
+                stat="noun_exists"
+                value={nounSummary.exists}
+                label={t('report.noun.summaryExists')}
+              />
+              <Count
+                stat="noun_not_found"
+                value={nounSummary.notFound}
+                label={t('report.noun.summaryNotFound')}
+              />
+              {nounSummary.uncertain > 0 ? (
+                <Count
+                  stat="noun_uncertain"
+                  value={nounSummary.uncertain}
+                  label={t('report.noun.summaryUncertain')}
+                />
+              ) : null}
+              {nounSummary.notChecked > 0 ? (
+                <Count
+                  stat="noun_not_checked"
+                  value={nounSummary.notChecked}
+                  label={t('report.noun.summaryNotChecked')}
+                />
+              ) : null}
+            </>
+          )}
         </ul>
         {byCategory.length === 0 ? null : (
           <ul className="lgp-summary-categories" data-lgp-summary-categories="true">
@@ -212,6 +260,11 @@ export function ReportView({
         articles={articles}
         t={t}
       />
+
+      {/* v1.0.0: noun checks follow the fact checklist. The component renders
+          nothing for reports without `nounChecks` (older reports), and a failed
+          `nouns` role is already covered by the generic notice above. */}
+      <NounCheckList checks={report.nounChecks} t={t} />
     </section>
   )
 }

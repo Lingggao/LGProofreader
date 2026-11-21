@@ -8,12 +8,14 @@
  *   left = bbox.x / page.widthPt, width = bbox.w / page.widthPt, ...
  *
  * Accessibility: each box is a focusable `role="button"` with an accessible
- * label (kind + reading order + confidence). Arrow keys move the region by 1 pt
+ * label (kind + reading order). Arrow keys move the region by 1 pt
  * (Shift: 10 pt) through `onMoveRegion`; numeric inputs in `RegionInspector` are
  * the precise alternative to dragging. Resize handles are pointer-only targets
  * on the selected box; their accessible alternative is the inspector's numeric
  * width/height. Low-confidence regions use a dashed border plus a warning icon,
- * so kind/confidence never rely on colour alone.
+ * so kind/confidence never rely on colour alone; the numeric confidence is
+ * intentionally **not** drawn inside the box (it crowded the preview and is
+ * available in the inspector).
  *
  * This module never mutates its inputs and never computes the page clamp: the
  * `App` applies `moveRegion`/`resizeRegion` from `src/shared/layout/edit.ts`,
@@ -280,7 +282,6 @@ export function RegionOverlay({
     <div className="lgp-region-overlay" data-lgp-part="region-overlay">
       {sortRegionsByOrder(regions).map((region) => {
         const label = regionKindLabel(region.kind, t)
-        const confidence = confidencePercent(region.confidence)
         const low = isLowConfidence(region)
         const selected = region.id === selectedRegionId
         const isHighlighted = highlighted.has(region.id)
@@ -313,8 +314,7 @@ export function RegionOverlay({
             aria-pressed={selected}
             aria-label={
               `${t('canvas.regionLabel', { kind: label })}，` +
-              `${t('canvas.order', { order: region.order + 1 })}，` +
-              `${t('canvas.confidence', { percent: confidence })}`
+              `${t('canvas.order', { order: region.order + 1 })}`
             }
             onClick={() => onSelectRegion(region.id)}
             onMouseDown={(event) => startMove(event, region)}
@@ -333,9 +333,6 @@ export function RegionOverlay({
                 !
               </span>
             ) : null}
-            <span className="lgp-region-confidence">
-              {t('canvas.confidence', { percent: confidence })}
-            </span>
             {selected
               ? RESIZE_CORNERS.map((corner) => (
                   <span

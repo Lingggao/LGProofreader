@@ -21,6 +21,7 @@ const ROLE_KEYS: Record<RoleId, string> = {
   idioms: 'report.role.idioms',
   style: 'report.role.style',
   facts: 'report.role.facts',
+  nouns: 'report.role.nouns',
   headline: 'report.role.headline',
   consistency: 'report.role.consistency',
   consolidator: 'report.role.consolidator',

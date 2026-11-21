@@ -14,6 +14,7 @@ prompts/zh/
     idioms.md             # 词语成语
     style.md              # 新闻出版规范
     facts.md              # 事实核查（两阶段：claims → verdicts）
+    nouns.md              # 联网名词核查（独立角色：名词清单 → Host 检索）
     headline.md           # 标题与导语
     consistency.md        # 全文一致性
     consolidator.md       # 汇总裁决
@@ -21,6 +22,7 @@ prompts/zh/
     findings.schema.json  # 各角色 findings 输出（draft-07，对象根）
     claims.schema.json    # facts 第一阶段：主张抽取
     factchecks.schema.json# facts 第二阶段：核验结论
+    nouns.schema.json     # nouns 第一阶段：名词与查询词
     layout.schema.json    # 视觉版面分析输出（Task 11 使用）
   README.md               # 本文件
 ```
@@ -43,7 +45,8 @@ prompts/zh/
 1. 只改本目录，不改代码（`src/host/services/prompts.ts` 只负责读取、组合、哈希、包裹数据）。
 2. `base.md` 逐字保留用户原稿；润色提示词时改 `rules.md` / `roles/*.md`，不要把改写全文塞回 `base.md`。
 3. `base.md` 或角色文件与 `rules.md` 冲突时，以 `rules.md` 为准（例如 `base.md` 的“自行联网搜索”由 Host 的 facts 流程执行，模型不联网、不调用工具）。
-4. 角色文件保持 5–12 行，只写该角色专属职责；所有角色共享规则放 `rules.md`，不要复制到每个角色。
+4. 角色文件尽量短（通常 5–12 行；名词核查因需要枚举名词类型与示例，可到 25 行），只写该角色专属职责；所有角色共享规则放 `rules.md`，不要复制到每个角色。
 5. 改动 `contracts/*.json` 时同步 `src/shared/types.ts` 及相关解析/校验代码与测试；契约保持 draft-07、对象根节点。
-6. 角色文件必须全部存在且非空：`master`、`words`、`idioms`、`style`、`facts`、`headline`、`consistency`、`consolidator`；缺任一文件加载器会报错。
+6. 角色文件必须全部存在且非空：`master`、`words`、`idioms`、`style`、`facts`、`nouns`、`headline`、`consistency`、`consolidator`；缺任一文件加载器会报错。
 7. 事实核查硬约束（`rules.md` 第 9 条 / `facts.md`）：应查尽查、逐项核查状态、不得静默跳过、无来源不判 `contradicted`、来源冲突列全部来源并标 `needs_human`、超限项标 `not_checked`。
+8. 名词核查硬约束（`nouns.md`）：只列名词/术语和搜索词，不判断句子真假；Host 负责联网检索与存在性判定；`not_found` 只表示当前来源未找到，不得写成“不存在”。

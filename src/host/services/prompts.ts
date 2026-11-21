@@ -39,6 +39,7 @@ export const PROMPT_ROLE_IDS: readonly RoleId[] = Object.freeze([
   'idioms',
   'style',
   'facts',
+  'nouns',
   'headline',
   'consistency',
   'consolidator',
@@ -49,6 +50,7 @@ export const PROMPT_CONTRACT_FILES: readonly string[] = Object.freeze([
   'findings.schema.json',
   'claims.schema.json',
   'factchecks.schema.json',
+  'nouns.schema.json',
   'layout.schema.json',
 ])
 

@@ -28,6 +28,7 @@ import type { WebClient, WebFetchResult, WebSearchRequest, WebSearchResult } fro
 import {
   DEFAULT_PER_CALL_TIMEOUT_MS,
   FACTS_PER_CALL_TIMEOUT_MS,
+  NOUN_PER_CALL_TIMEOUT_MS,
   JobCancelledError,
   createJobOrchestrator,
   type JobState,
@@ -37,6 +38,7 @@ import {
   ROLE_REASONING_EFFORT,
   articleCacheText,
   factBudgetForDepth,
+  nounBudgetForDepth,
   roleCacheKey,
   rolesForDepth,
 } from '../../src/host/proof/roles'
@@ -297,6 +299,9 @@ function defaultReply(request: LlmRequest): string {
       ? JSON.stringify({ claims: [] })
       : JSON.stringify({ verdicts: [] })
   }
+  // The independent nouns role only plans names/queries; the fake plan is empty
+  // so it performs no network searches in the text-role tests.
+  if (role === 'nouns') return JSON.stringify({ nouns: [] })
   if (role === 'consolidator') return JSON.stringify({ findings: [], notes: '' })
   return JSON.stringify({ findings: [FINDING_PAYLOAD] })
 }
@@ -586,9 +591,12 @@ describe('layout jobs', () => {
 
 describe('proofread role execution', () => {
   const DEPTH_CASES: Array<[string, RoleId[]]> = [
-    ['quick', ['master', 'facts', 'words']],
-    ['standard', ['master', 'facts', 'words', 'idioms', 'style', 'headline']],
-    ['deep', ['master', 'facts', 'words', 'idioms', 'style', 'headline', 'consistency']],
+    ['quick', ['master', 'facts', 'nouns', 'words']],
+    ['standard', ['master', 'facts', 'nouns', 'words', 'idioms', 'style', 'headline']],
+    [
+      'deep',
+      ['master', 'facts', 'nouns', 'words', 'idioms', 'style', 'headline', 'consistency'],
+    ],
   ]
 
   it.each(DEPTH_CASES)('runs the %s depth role set plus the consolidator', async (depth, expected) => {
@@ -843,9 +851,10 @@ describe('proofread role execution', () => {
     expect(store.reports).toHaveLength(1)
   })
 
-  it('defaults general role attempts to 300 s and the facts role to a 13 min hard ceiling', () => {
+  it('defaults general role attempts to 300 s and network roles to fixed ceilings', () => {
     expect(DEFAULT_PER_CALL_TIMEOUT_MS).toBe(300_000)
     expect(FACTS_PER_CALL_TIMEOUT_MS).toBe(780_000)
+    expect(NOUN_PER_CALL_TIMEOUT_MS).toBe(540_000)
   })
 
   it('lets a slow facts role exceed the general per-call bound while other roles still time out', async () => {
@@ -886,6 +895,7 @@ describe('proofread role execution', () => {
     const llm = makeLlm((request) => {
       const role = roleOfSystem(request.system)
       if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
       if (role === 'consolidator') return JSON.stringify({ findings: [] })
       if (role !== 'headline') return JSON.stringify({ findings: [] })
       return JSON.stringify({
@@ -945,6 +955,7 @@ describe('proofread role execution', () => {
     const llm = makeLlm((request) => {
       const role = roleOfSystem(request.system)
       if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
       if (role === 'consolidator') return JSON.stringify({ findings: [] })
       if (role !== 'headline') return JSON.stringify({ findings: [] })
       return JSON.stringify({
@@ -1034,16 +1045,16 @@ describe('proofread role execution', () => {
     expect(peak).toBe(2)
   })
 
-  it('starts the facts role right after the master role so the long role overlaps (Task 25)', async () => {
+  it('starts the network roles right after the master role so the long roles overlap (Task 25)', async () => {
     const store = makeStore(makeDoc())
     const prompts = makePrompts()
     const llm = makeLlm((request) => {
       if (roleOfSystem(request.system) === 'facts') return JSON.stringify({ claims: [] })
       return defaultReply(request)
     })
-    // concurrency 1 makes the dispatch order observable: the fact role must be
-    // scheduled second instead of last, so it overlaps the text roles whenever
-    // the Host has more than one worker.
+    // concurrency 1 makes the dispatch order observable: the network roles must
+    // be scheduled right after the master role instead of last, so they overlap
+    // the text roles whenever the Host has more than one worker.
     const { deps } = makeDeps({ store, llm, prompts, concurrency: 1 })
     const orchestrator = createJobOrchestrator(deps)
 
@@ -1061,6 +1072,7 @@ describe('proofread role execution', () => {
     expect(workerComposeOrder).toEqual([
       'master',
       'facts',
+      'nouns',
       'words',
       'idioms',
       'style',
@@ -1099,6 +1111,7 @@ describe('proofread role execution', () => {
     for (const role of [
       'master',
       'facts',
+      'nouns',
       'consistency',
       'consolidator',
       'words',
@@ -1199,6 +1212,7 @@ describe('proofread fact-check integration', () => {
           })
         }
         if (role === 'consolidator') return JSON.stringify({ findings: [], notes: '' })
+        if (role === 'nouns') return JSON.stringify({ nouns: [] })
         return JSON.stringify({ findings: [] })
       },
       { inputTokens: 10, outputTokens: 20 },
@@ -1407,6 +1421,177 @@ describe('proofread fact-check integration', () => {
 })
 
 /* ------------------------------------------------------------------------- */
+/* Noun-check integration                                                      */
+/* ------------------------------------------------------------------------- */
+
+describe('proofread noun-check integration', () => {
+  const NOUN_ARTICLE = makeArticle({
+    body: '本报讯 复旦大学附属华山医院团队与脑机接口系统NEO亮相，这是错误的内容。',
+  })
+  const NOUN_PLAN = [
+    {
+      name: '脑机接口系统NEO',
+      quote: '脑机接口系统NEO',
+      kind: 'system',
+      queries: ['NEO 脑机接口', '脑机接口系统NEO'],
+      priority: 1,
+    },
+    {
+      name: '复旦大学附属华山医院',
+      quote: '复旦大学附属华山医院团队',
+      kind: 'institution',
+      queries: ['华山医院', '复旦大学附属华山医院'],
+      priority: 2,
+    },
+  ]
+
+  it('runs the independent nouns role and reports existence-only checks without findings', async () => {
+    const store = makeStore(makeDoc([NOUN_ARTICLE]))
+    const llm = makeLlm((request) => {
+      const role = roleOfSystem(request.system)
+      if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: NOUN_PLAN })
+      return JSON.stringify({ findings: [] })
+    })
+    const web = makeWeb({
+      search: (request) => {
+        if (request.query.includes('NEO')) {
+          return {
+            content: '',
+            sources: [
+              { url: 'https://baike.baidu.com/item/neo', title: 'NEO 百科' },
+              { url: 'https://example.com/neo', title: 'NEO 报道' },
+            ],
+            truncated: false,
+          }
+        }
+        return {
+          content: '',
+          sources: [{ url: 'https://example.com/huashan', title: '华山医院报道' }],
+          truncated: false,
+        }
+      },
+    })
+    const { deps } = makeDeps({ store, llm, web })
+    const orchestrator = createJobOrchestrator(deps)
+
+    const jobId = await orchestrator.startProofread({
+      docId: DOC_ID,
+      articleIds: ['a1'],
+      depth: 'standard',
+      factCheck: true,
+    })
+    const state = await waitForStatus(orchestrator, jobId, 'done')
+
+    expect(state.stages.find((stage) => stage.id === 'a1:nouns')?.status).toBe('done')
+    const report = state.result as Report
+    expect(report.nounChecks).toHaveLength(2)
+    const [first, second] = report.nounChecks ?? []
+    // The plan is priority-ordered and the local ids are `noun1…`.
+    expect(first).toMatchObject({
+      id: 'a1:noun1',
+      articleId: 'a1',
+      name: '脑机接口系统NEO',
+      status: 'exists',
+      confidence: 'high',
+      needsHuman: false,
+    })
+    expect(first.sources).toHaveLength(2)
+    expect(second).toMatchObject({
+      id: 'a1:noun2',
+      articleId: 'a1',
+      name: '复旦大学附属华山医院',
+      status: 'uncertain',
+      confidence: 'low',
+      needsHuman: true,
+    })
+    expect(report.summary.nounCheck).toEqual({
+      exists: 1,
+      uncertain: 1,
+      notFound: 0,
+      notChecked: 0,
+    })
+    // Existence information only: the nouns role never contributes findings.
+    expect(report.findings).toEqual([])
+  })
+
+  it('does not reuse an offline not_checked noun result when the network is enabled', async () => {
+    const store = makeStore(makeDoc([NOUN_ARTICLE]))
+    const llm = makeLlm((request) => {
+      const role = roleOfSystem(request.system)
+      if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [NOUN_PLAN[1]] })
+      return JSON.stringify({ findings: [] })
+    })
+    const web = makeWeb({
+      search: () => ({
+        content: '',
+        sources: [
+          { url: 'https://www.gov.cn/notice', title: '政府公告' },
+          { url: 'https://example.com/huashan', title: '华山医院报道' },
+        ],
+        truncated: false,
+      }),
+    })
+    const { deps } = makeDeps({ store, llm, web })
+    const orchestrator = createJobOrchestrator(deps)
+
+    const offlineJob = await orchestrator.startProofread({
+      docId: DOC_ID,
+      articleIds: ['a1'],
+      depth: 'quick',
+      factCheck: false,
+    })
+    const offlineReport = (await waitForStatus(orchestrator, offlineJob, 'done')).result as Report
+    expect(offlineReport.nounChecks).toHaveLength(1)
+    expect(offlineReport.nounChecks?.[0]).toMatchObject({
+      status: 'not_checked',
+      needsHuman: false,
+    })
+    expect(offlineReport.summary.nounCheck).toEqual({
+      exists: 0,
+      uncertain: 0,
+      notFound: 0,
+      notChecked: 1,
+    })
+    // No real network is touched when the switch is off.
+    expect(web.search).not.toHaveBeenCalled()
+    const offlineSave = store.roleSaves.find(
+      (save) => save.jobId === offlineJob && save.role === 'nouns',
+    )
+    expect(offlineSave?.value).toMatchObject({ depth: 'quick', factCheck: false })
+
+    const onlineJob = await orchestrator.startProofread({
+      docId: DOC_ID,
+      articleIds: ['a1'],
+      depth: 'quick',
+      factCheck: true,
+    })
+    const onlineReport = (await waitForStatus(orchestrator, onlineJob, 'done')).result as Report
+    // A fresh noun plan + search run, never the cached offline not_checked rows.
+    expect(roleCalls(llm, 'nouns')).toHaveLength(2)
+    expect(onlineReport.nounChecks?.[0]?.status).toBe('exists')
+    expect(web.search).toHaveBeenCalled()
+    const onlineSave = store.roleSaves.find(
+      (save) => save.jobId === onlineJob && save.role === 'nouns',
+    )
+    expect(onlineSave?.value).toMatchObject({ depth: 'quick', factCheck: true })
+
+    // A same-depth/online rerun may hit the cache and keeps the online result.
+    const rerunJob = await orchestrator.startProofread({
+      docId: DOC_ID,
+      articleIds: ['a1'],
+      depth: 'quick',
+      factCheck: true,
+    })
+    const rerunReport = (await waitForStatus(orchestrator, rerunJob, 'done')).result as Report
+    expect(roleCalls(llm, 'nouns')).toHaveLength(2)
+    expect(rerunReport.nounChecks?.[0]?.status).toBe('exists')
+    expect(store.roleSaves.filter((save) => save.jobId === rerunJob)).toHaveLength(0)
+  })
+})
+
+/* ------------------------------------------------------------------------- */
 /* Caching                                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -1427,9 +1612,9 @@ describe('proofread caching', () => {
     const roleCallsAfterFirst = llm.calls.filter(
       (request) => roleOfSystem(request.system) !== 'consolidator',
     )
-    expect(roleCallsAfterFirst).toHaveLength(3)
+    expect(roleCallsAfterFirst).toHaveLength(4)
     const persistedAfterFirst = store.roleSaves.filter((save) => save.role !== 'facts-evidence')
-    expect(persistedAfterFirst).toHaveLength(3)
+    expect(persistedAfterFirst).toHaveLength(4)
 
     const secondJob = await orchestrator.startProofread({
       docId: DOC_ID,
@@ -1441,7 +1626,7 @@ describe('proofread caching', () => {
 
     expect(
       llm.calls.filter((request) => roleOfSystem(request.system) !== 'consolidator'),
-    ).toHaveLength(3)
+    ).toHaveLength(4)
     expect(state.stages.filter((stage) => stage.id.startsWith('a1:') && stage.id !== 'a1:consolidator').every((stage) => stage.status === 'done')).toBe(true)
     // Cache hits skip the model and do not rewrite the per-job cache files.
     expect(store.roleSaves.filter((save) => save.jobId === secondJob)).toHaveLength(0)
@@ -1497,6 +1682,8 @@ describe('proofread caching', () => {
     expect(roleCalls(secondLlm, 'master')).toHaveLength(0)
     expect(roleCalls(secondLlm, 'words')).toHaveLength(0)
     expect(roleCalls(secondLlm, 'facts')).toHaveLength(0)
+    // The network nouns role is cached and keyed on depth/network mode too.
+    expect(roleCalls(secondLlm, 'nouns')).toHaveLength(0)
     expect(roleCalls(secondLlm, 'consolidator')).toHaveLength(1)
     // The previous completed job's role files were the reload source.
     expect(
@@ -1547,7 +1734,7 @@ describe('proofread caching', () => {
     await waitForStatus(secondOrchestrator, secondJob, 'done')
     expect(
       secondLlm.calls.filter((request) => roleOfSystem(request.system) !== 'consolidator'),
-    ).toHaveLength(3)
+    ).toHaveLength(4)
 
     const thirdLlm = makeLlm()
     const { deps: thirdDeps } = makeDeps({
@@ -1565,7 +1752,7 @@ describe('proofread caching', () => {
     await waitForStatus(thirdOrchestrator, thirdJob, 'done')
     expect(
       thirdLlm.calls.filter((request) => roleOfSystem(request.system) !== 'consolidator'),
-    ).toHaveLength(3)
+    ).toHaveLength(4)
 
     // A provider-only change (same model name) must also invalidate the cache.
     const fourthLlm = makeLlm()
@@ -1584,7 +1771,7 @@ describe('proofread caching', () => {
     const fourthState = await waitForStatus(fourthOrchestrator, fourthJob, 'done')
     expect(
       fourthLlm.calls.filter((request) => roleOfSystem(request.system) !== 'consolidator'),
-    ).toHaveLength(3)
+    ).toHaveLength(4)
     expect((fourthState.result as Report).model).toBe(`other-provider/${MODEL}`)
   })
 
@@ -1806,6 +1993,35 @@ describe('proofread caching', () => {
     expect(roleCacheKey({ ...base, model: 'm2' })).not.toBe(key)
     expect(roleCacheKey({ ...base, text: '文本2' })).not.toBe(key)
   })
+
+  it('keys the network roles on depth and network mode, not only the text', () => {
+    const base = {
+      articleId: 'a1',
+      role: 'nouns' as RoleId,
+      promptVersion: 'pv1',
+      model: 'm1',
+      text: '文本',
+    }
+    const quickOffline = roleCacheKey({ ...base, depth: 'quick', factCheck: false })
+    expect(roleCacheKey({ ...base, depth: 'quick', factCheck: false })).toBe(quickOffline)
+    // An offline not_checked noun result must never be reused online.
+    expect(roleCacheKey({ ...base, depth: 'quick', factCheck: true })).not.toBe(quickOffline)
+    expect(roleCacheKey({ ...base, depth: 'deep', factCheck: false })).not.toBe(quickOffline)
+    // The facts role keeps the identical identity rule.
+    expect(
+      roleCacheKey({ articleId: 'a1', role: 'facts', promptVersion: 'pv1', model: 'm1', text: '文本' }),
+    ).not.toBe(
+      roleCacheKey({
+        articleId: 'a1',
+        role: 'facts',
+        promptVersion: 'pv1',
+        model: 'm1',
+        text: '文本',
+        depth: 'quick',
+        factCheck: false,
+      }),
+    )
+  })
 })
 
 /* ------------------------------------------------------------------------- */
@@ -1820,6 +2036,7 @@ describe('consolidation and reports', () => {
       if (roleOfSystem(request.system) === 'facts') {
         return JSON.stringify({ claims: [] })
       }
+      if (roleOfSystem(request.system) === 'nouns') return JSON.stringify({ nouns: [] })
       return JSON.stringify({ findings: [] })
     })
     const { deps } = makeDeps({ store, llm, prompts })
@@ -1871,6 +2088,7 @@ describe('consolidation and reports', () => {
       if (role === 'master') return JSON.stringify({ findings: [masterFinding] })
       if (role === 'words') return JSON.stringify({ findings: [wordsFinding] })
       if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
       if (role === 'consolidator') {
         return JSON.stringify({
           findings: [
@@ -1965,6 +2183,7 @@ describe('consolidation and reports', () => {
     const llm = makeLlm((request) => {
       const role = roleOfSystem(request.system)
       if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
       if (role === 'consolidator') return JSON.stringify({ findings: [] })
       return JSON.stringify({
         findings: [
@@ -2004,6 +2223,7 @@ describe('consolidation and reports', () => {
       const role = roleOfSystem(request.system)
       const user = userText(request)
       if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
       if (role === 'consolidator') return JSON.stringify({ findings: [] })
       if (role === 'master') {
         if (user.includes('article=a1')) {
@@ -2118,6 +2338,14 @@ describe('consolidation and reports', () => {
       '《标题乙》标题问题：“标题乙” → 新标题',
     ])
     expect(report.factChecks).toEqual([])
+    // New reports always carry the noun checklist + summary, even when empty.
+    expect(report.nounChecks).toEqual([])
+    expect(report.summary.nounCheck).toEqual({
+      exists: 0,
+      uncertain: 0,
+      notFound: 0,
+      notChecked: 0,
+    })
     expect(report.stats.failedCalls).toBe(0)
     expect(report.stats.elapsedMs).toBeGreaterThanOrEqual(0)
   })
@@ -2231,11 +2459,12 @@ describe('cancellation and job state', () => {
 /* ------------------------------------------------------------------------- */
 
 describe('role helpers', () => {
-  it('defines the documented depth role sets with the facts role early (Task 25)', () => {
-    expect(rolesForDepth('quick')).toEqual(['master', 'facts', 'words'])
+  it('defines the documented depth role sets with the network roles early (Task 25)', () => {
+    expect(rolesForDepth('quick')).toEqual(['master', 'facts', 'nouns', 'words'])
     expect(rolesForDepth('standard')).toEqual([
       'master',
       'facts',
+      'nouns',
       'words',
       'idioms',
       'style',
@@ -2244,6 +2473,7 @@ describe('role helpers', () => {
     expect(rolesForDepth('deep')).toEqual([
       'master',
       'facts',
+      'nouns',
       'words',
       'idioms',
       'style',
@@ -2252,23 +2482,40 @@ describe('role helpers', () => {
     ])
     for (const depth of ['quick', 'standard', 'deep'] as const) {
       expect(rolesForDepth(depth)).toContain('facts')
-      // The longest role is scheduled right after the master role so it overlaps
-      // the shorter text roles under the global concurrency cap.
+      expect(rolesForDepth(depth)).toContain('nouns')
+      // The longest roles are scheduled right after the master role so they
+      // overlap the shorter text roles under the global concurrency cap.
       expect(rolesForDepth(depth)[1]).toBe('facts')
+      expect(rolesForDepth(depth)[2]).toBe('nouns')
     }
-    // The role sets are unchanged: only the order moved.
+    // The text role sets are unchanged: only the network role was added.
     expect([...rolesForDepth('standard')].sort()).toEqual(
-      ['facts', 'headline', 'idioms', 'master', 'style', 'words'].sort(),
+      ['facts', 'headline', 'idioms', 'master', 'nouns', 'style', 'words'].sort(),
     )
     expect([...rolesForDepth('deep')].sort()).toEqual(
-      ['consistency', 'facts', 'headline', 'idioms', 'master', 'style', 'words'].sort(),
+      ['consistency', 'facts', 'headline', 'idioms', 'master', 'nouns', 'style', 'words'].sort(),
     )
+  })
+
+  it('maps depth to the noun-check plan/search budget', () => {
+    expect(nounBudgetForDepth('quick')).toEqual({ maxNouns: 30, maxSearches: 40, resultsPerNoun: 5 })
+    expect(nounBudgetForDepth('standard')).toEqual({
+      maxNouns: 80,
+      maxSearches: 120,
+      resultsPerNoun: 5,
+    })
+    expect(nounBudgetForDepth('deep')).toEqual({
+      maxNouns: 120,
+      maxSearches: 180,
+      resultsPerNoun: 5,
+    })
   })
 
   it('defines high reasoning effort for every role (Task 25 live fix)', () => {
     expect(ROLE_REASONING_EFFORT).toEqual({
       master: 'high',
       facts: 'high',
+      nouns: 'high',
       consistency: 'high',
       consolidator: 'high',
       words: 'high',
@@ -2303,7 +2550,9 @@ describe('fact-check plan progress', () => {
       releaseSearch = resolve
     })
     const llm = makeLlm((request) => {
-      if (roleOfSystem(request.system) !== 'facts') return JSON.stringify({ findings: [] })
+      const role = roleOfSystem(request.system)
+      if (role === 'nouns') return JSON.stringify({ nouns: [] })
+      if (role !== 'facts') return JSON.stringify({ findings: [] })
       if (userText(request).includes('第一阶段')) {
         return JSON.stringify({
           claims: [
@@ -2361,5 +2610,111 @@ describe('fact-check plan progress', () => {
     expect(final?.notChecked).toBe(0)
     expect(final?.items[0]?.status).toBe('checked')
     expect(final?.items[0]?.verdict).toBe('confirmed')
+  })
+})
+
+/* ------------------------------------------------------------------------- */
+/* Live noun-check plan/progress in GET /job                                   */
+/* ------------------------------------------------------------------------- */
+
+describe('noun-check plan progress', () => {
+  it('exposes the planned nouns and the final checked count through the job snapshot', async () => {
+    const store = makeStore(makeDoc())
+    let releaseSearch: (() => void) | undefined
+    const searchGate = new Promise<void>((resolve) => {
+      releaseSearch = resolve
+    })
+    const llm = makeLlm((request) => {
+      const role = roleOfSystem(request.system)
+      if (role === 'facts') return JSON.stringify({ claims: [] })
+      if (role === 'nouns') {
+        return JSON.stringify({
+          nouns: [
+            {
+              name: '脑机接口系统NEO',
+              quote: '脑机接口系统NEO',
+              kind: 'system',
+              queries: ['NEO 脑机接口', '脑机接口系统NEO'],
+              priority: 1,
+            },
+          ],
+        })
+      }
+      return JSON.stringify({ findings: [] })
+    })
+    const web = makeWeb({
+      search: async () => {
+        await searchGate
+        return {
+          content: '',
+          sources: [
+            { url: 'https://example.com/neo', title: 'NEO 报道' },
+            { url: 'https://www.wikipedia.org/wiki/NEO', title: 'NEO 维基' },
+          ],
+          truncated: false,
+        }
+      },
+    })
+    const { deps } = makeDeps({ store, llm, web })
+    const orchestrator = createJobOrchestrator(deps)
+
+    const jobId = await orchestrator.startProofread({
+      docId: DOC_ID,
+      articleIds: ['a1'],
+      depth: 'quick',
+      factCheck: true,
+    })
+    await vi.waitFor(() => {
+      const progress = orchestrator.get(jobId)?.nounProgress
+      expect(progress?.total).toBe(1)
+      expect(progress?.items[0]?.name).toBe('脑机接口系统NEO')
+    })
+    const live = orchestrator.get(jobId)?.nounProgress
+    expect(live?.phase).toBe('searching')
+    expect(live?.items[0]?.priority).toBe(1)
+    expect(live?.items[0]?.status).toBe('pending')
+    expect(live?.items[0]?.id).toBe('a1:noun1')
+
+    releaseSearch?.()
+    const state = await waitForStatus(orchestrator, jobId, 'done')
+    const final = state.nounProgress
+    expect(final?.phase).toBe('done')
+    expect(final?.checked).toBe(1)
+    expect(final?.notChecked).toBe(0)
+    expect(final?.items[0]?.status).toBe('checked')
+    expect(final?.items[0]?.result).toBe('exists')
+  })
+
+  it('does not retry a noun-role timeout (fixed 9 min bound)', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = makeStore(makeDoc())
+      const llm = makeLlm((request) => {
+        if (roleOfSystem(request.system) !== 'nouns') return defaultReply(request)
+        // Never settles and ignores the abort signal: the 9-minute bound races it.
+        return new Promise<string>(() => {})
+      })
+      const { deps } = makeDeps({ store, llm })
+      const orchestrator = createJobOrchestrator(deps)
+
+      const jobId = await orchestrator.startProofread({
+        docId: DOC_ID,
+        articleIds: ['a1'],
+        depth: 'quick',
+        factCheck: false,
+      })
+      await vi.waitFor(() => expect(roleCalls(llm, 'nouns')).toHaveLength(1))
+      await vi.advanceTimersByTimeAsync(540_000)
+      const state = await waitForStatus(orchestrator, jobId, 'done')
+
+      const nounsStage = state.stages.find((stage) => stage.id === 'a1:nouns')
+      expect(nounsStage?.status).toBe('failed')
+      expect(nounsStage?.error).toContain('timed out')
+      // A timeout is final: the retry would double the user-visible ceiling.
+      expect(roleCalls(llm, 'nouns')).toHaveLength(1)
+      expect(store.reports).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

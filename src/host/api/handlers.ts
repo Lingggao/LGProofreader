@@ -96,6 +96,7 @@ const ROLE_IDS: ReadonlySet<string> = new Set([
   'idioms',
   'style',
   'facts',
+  'nouns',
   'headline',
   'consistency',
   'consolidator',

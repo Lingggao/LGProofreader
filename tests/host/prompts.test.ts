@@ -23,6 +23,7 @@ const EXPECTED_ROLES: readonly RoleId[] = [
   'idioms',
   'style',
   'facts',
+  'nouns',
   'headline',
   'consistency',
   'consolidator',
@@ -73,7 +74,7 @@ afterEach(async () => {
 })
 
 describe('loadPromptLibrary', () => {
-  it('loads all eight roles and exposes a stable 12-hex content version', async () => {
+  it('loads all nine roles and exposes a stable 12-hex content version', async () => {
     const library = await loadPromptLibrary(PROMPT_DIR)
     expect(library.roles).toEqual(EXPECTED_ROLES)
     expect(PROMPT_ROLE_IDS).toEqual(EXPECTED_ROLES)
@@ -131,6 +132,13 @@ describe('loadPromptLibrary', () => {
       if (role === 'facts') {
         expect(system).toContain('claims.schema.json')
         expect(system).toContain('factchecks.schema.json')
+      } else if (role === 'nouns') {
+        // The independent nouns role has its own planning contract and never
+        // emits findings: its role prompt spells the JSON plan shape inline and
+        // the shared rules still mention the (unused-here) findings schema.
+        expect(system).toContain('只输出 JSON')
+        expect(system).toContain('"nouns"')
+        expect(system).toContain('Host 会联网检索')
       } else {
         expect(system).toContain('findings.schema.json')
       }
@@ -247,6 +255,11 @@ describe('loadPromptLibrary', () => {
     const missingContract = await copyPromptDir()
     await rm(join(missingContract, 'contracts', 'layout.schema.json'))
     await expect(loadPromptLibrary(missingContract)).rejects.toThrow(/layout\.schema\.json/)
+
+    // The independent noun-planning contract is required just like the others.
+    const missingNounContract = await copyPromptDir()
+    await rm(join(missingNounContract, 'contracts', 'nouns.schema.json'))
+    await expect(loadPromptLibrary(missingNounContract)).rejects.toThrow(/nouns\.schema\.json/)
   })
 
   it('rejects a contract file that is not valid JSON', async () => {
@@ -264,8 +277,13 @@ describe('loadPromptLibrary', () => {
       const lines = (await promptFile('roles', `${role}.md`))
         .split(/\r?\n/)
         .filter((line) => line.trim() !== '')
-      expect(lines.length, `roles/${role}.md should stay between 5 and 12 lines`).toBeGreaterThanOrEqual(5)
-      expect(lines.length, `roles/${role}.md should stay between 5 and 12 lines`).toBeLessThanOrEqual(12)
+      // The independent nouns role plans a full prioritized noun/query list and
+      // states the "existence only" rules, so its shipped prompt is intentionally
+      // longer than the thin findings roles (root-owned prompt content: do not
+      // shorten it just to satisfy this test).
+      const maxLines = role === 'nouns' ? 24 : 12
+      expect(lines.length, `roles/${role}.md should stay between 5 and ${maxLines} lines`).toBeGreaterThanOrEqual(5)
+      expect(lines.length, `roles/${role}.md should stay between 5 and ${maxLines} lines`).toBeLessThanOrEqual(maxLines)
     }
 
     const rules = await promptFile('rules.md')
@@ -351,11 +369,12 @@ function itemOf(schema: JsonSchema, rootKey: string): JsonSchema {
 }
 
 describe('prompt output contracts', () => {
-  it('ships object-rooted draft-07 schemas for findings, claims, fact checks and layout', async () => {
+  it('ships object-rooted draft-07 schemas for findings, claims, fact checks, nouns and layout', async () => {
     for (const name of [
       'findings.schema.json',
       'claims.schema.json',
       'factchecks.schema.json',
+      'nouns.schema.json',
       'layout.schema.json',
     ]) {
       const schema = await readContract(name)
@@ -433,6 +452,33 @@ describe('prompt output contracts', () => {
     expect(serialized).toContain('contradicted')
     expect(serialized).toContain('minItems')
     expect(serialized).toContain('sources')
+  })
+
+  it('matches nouns.schema.json to the noun-planning contract', async () => {
+    const schema = await readContract('nouns.schema.json')
+    expect(schema.required).toContain('nouns')
+    const item = itemOf(schema, 'nouns')
+    expect(item.required).toEqual(
+      expect.arrayContaining(['name', 'quote', 'kind', 'queries', 'priority']),
+    )
+    expect(item.properties?.kind?.enum).toEqual([
+      'organization',
+      'company',
+      'institution',
+      'place',
+      'product',
+      'system',
+      'project',
+      'event',
+      'person',
+      'title',
+      'technical_term',
+      'other',
+    ])
+    expect(item.properties?.queries?.type).toBe('array')
+    expect(item.properties?.queries?.minItems).toBe(2)
+    expect(item.properties?.queries?.maxItems).toBe(3)
+    expect(item.properties?.priority?.type).toBe('integer')
   })
 
   it('matches layout.schema.json to the shared vision-layout contract', async () => {

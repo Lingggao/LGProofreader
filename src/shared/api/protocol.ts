@@ -20,6 +20,7 @@ import type {
   DocumentRecord,
   FactCheckProgress,
   JobId,
+  NounProgress,
   PageTextInput,
   Region,
   RoleId,
@@ -178,6 +179,8 @@ export interface JobView {
   stages: StageState[]
   /** Live network fact-check plan/progress while the facts role is running. */
   factProgress?: FactCheckProgress
+  /** Live network noun-check plan/progress while the independent nouns role runs. */
+  nounProgress?: NounProgress
   /** Layout: assembled layout; proofread: the final `Report`. */
   result?: unknown
   error?: string

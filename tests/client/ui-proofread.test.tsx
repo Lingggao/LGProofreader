@@ -300,7 +300,7 @@ const UNAVAILABLE_REPORT: Report = {
 }
 
 const META: MetaView = {
-  version: '0.1.0',
+  version: '1.0.0',
   model: { provider: 'provider_a', model: 'model_x' },
   promptVersion: 'prompt-v1',
   limits: { maxUploadBytes: 1, maxImageBytes: 1, maxJsonBytes: 1, maxPages: 1 },
@@ -575,9 +575,10 @@ describe('ProofreadPanel', () => {
     const onStart = vi.fn()
     renderPanel({ selectedCount: 2, articleCount: 2, onStart })
 
-    expect(PROOFREAD_ROLE_COUNTS).toEqual({ quick: 4, standard: 7, deep: 8 })
-    expect(estimateProofreadCalls(2, 'standard')).toBe(14)
-    expect(screen.getByText(/预计模型调用 14 次/)).toBeTruthy()
+    expect(PROOFREAD_ROLE_COUNTS).toEqual({ quick: 5, standard: 8, deep: 9 })
+    expect(estimateProofreadCalls(2, 'standard')).toBe(16)
+    expect(screen.getByText(/角色 8 个/)).toBeTruthy()
+    expect(screen.getByText(/预计模型调用 16 次/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '开始校对' }))
     expect(onStart).not.toHaveBeenCalled()

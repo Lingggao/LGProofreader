@@ -64,7 +64,7 @@ const SETTINGS: SettingsView = {
 }
 
 const META: MetaView = {
-  version: '0.1.0',
+  version: '1.0.0',
   model: { provider: 'provider_a', model: 'model_x' },
   promptVersion: 'prompt-v1',
   limits: { maxUploadBytes: 1, maxImageBytes: 1, maxJsonBytes: 1, maxPages: 1 },
@@ -275,8 +275,8 @@ describe('Task 24 stylesheet', () => {
     expect(label).toMatch(/font-size: var\(--lgp-text-label\)|font-size: 12px/)
     expect(label).toContain('padding:')
     expect(label).toContain('border-radius: 6px')
-    const confidence = clientStyles.match(/\.lgp-region-confidence \{([^}]*)\}/)?.[1] ?? ''
-    expect(confidence).toMatch(/font-size: var\(--lgp-text-label\)|font-size: 10px/)
+    // 1.0.0 removed the in-box confidence text to keep the preview uncluttered.
+    expect(clientStyles).not.toContain('.lgp-region-confidence')
     const handle = clientStyles.match(/\.lgp-region-handle \{([^}]*)\}/)?.[1] ?? ''
     expect(handle).toMatch(/width: 1[0-2]px/)
     expect(handle).toMatch(/height: 1[0-2]px/)

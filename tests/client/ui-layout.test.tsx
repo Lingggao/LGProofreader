@@ -342,7 +342,8 @@ describe('Canvas and RegionOverlay', () => {
     expect(lead.style.height).toBe('10%')
     expect(lead.className).toContain('lgp-region--kind-lead')
     expect(lead.textContent).toContain('头条')
-    expect(lead.textContent).toContain('90%')
+    expect(lead.textContent).not.toContain('90%')
+    expect(lead.querySelector('.lgp-region-confidence')).toBeNull()
 
     const second = regionBox(container, 'r2')
     expect(second.className).toContain('lgp-region--kind-second')

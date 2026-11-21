@@ -8,16 +8,17 @@
  * access, and the inputs are never mutated.
  *
  * Document order is fixed by the brief:
- * title → each article's findings → 事实核查清单 → 必须修改的条目 → footer.
+ * title → each article's findings → 事实核查清单 → 名词核查（仅当报告带有名词核查
+ * 数据时） → 必须修改的条目 → footer.
  *
  * Guarantees:
- * - only findings, the fact checklist and the must-fix summary are rendered; the
- *   article body is never emitted, so the export can never contain a rewritten
- *   full text (design §7.3);
+ * - only findings, the fact checklist, the existence-only noun checklist and the
+ *   must-fix summary are rendered; the article body is never emitted, so the
+ *   export can never contain a rewritten full text (design §7.3);
  * - a finding's suggestion is bolded, while `**…**` markers the consolidator
  *   already put around the changed words are kept instead of double-wrapped;
- * - fact table cells escape `|` and collapse newlines, so untrusted model text
- *   cannot break the table;
+ * - fact/noun table cells escape `|` and collapse newlines, so untrusted model
+ *   text cannot break the table;
  * - findings keep the order of `report.findings` (the consolidator owns the
  *   must_fix → suggested → optional sort, design §7.6.4); this renderer only
  *   groups them per article;
@@ -25,11 +26,20 @@
  *   fields degrade to a readable fallback instead of throwing or silently
  *   dropping an entry;
  * - failed roles (`Report.failedRoles`) are rendered as a prominent warning
- *   before the findings, and a failed `facts` role changes the empty checklist
- *   text to “事实核查角色未完成，不能视为未发现可核查项” — a failed role is
- *   “not checked”, never “checked, nothing found” (Task 21f).
+ *   before the findings, and a failed `facts`/`nouns` role changes the empty
+ *   checklist text to “事实核查角色未完成，不能视为未发现可核查项” /
+ *   “名词核查角色未完成，不能视为未发现可核查名词” — a failed role is “not
+ *   checked”, never “checked, nothing found” (Task 21f).
  */
-import type { Article, FactCheck, Finding, Report, ReportRoleFailure, RoleId } from '../types'
+import type {
+  Article,
+  FactCheck,
+  Finding,
+  NounCheck,
+  Report,
+  ReportRoleFailure,
+  RoleId,
+} from '../types'
 
 /**
  * Fallback product version shown in the footer.
@@ -40,7 +50,7 @@ import type { Article, FactCheck, Finding, Report, ReportRoleFailure, RoleId } f
  * keeps the pure renderer usable on its own (tests/tools) and must stay equal to
  * the manifest version — `scripts/validate.mjs` fails on drift.
  */
-export const DEFAULT_REPORT_VERSION = '0.1.0'
+export const DEFAULT_REPORT_VERSION = '1.0.0'
 
 /**
  * Build-time injected default footer banner (`Ling Gao Proofreader v<version>`).
@@ -105,9 +115,22 @@ const KIND_LABELS: Readonly<Record<FactCheck['kind'], string>> = {
   other: '其他',
 }
 
+/**
+ * Noun-check existence labels. A missing source is never rendered as
+ * “不存在”: `not_found` reads “未找到来源”, an explicit evidence gap.
+ */
+const NOUN_STATUS_LABELS: Readonly<Record<NonNullable<NounCheck['status']>, string>> = {
+  exists: '有网络收录',
+  uncertain: '证据不足',
+  not_found: '未找到来源',
+  not_checked: '未核查',
+}
+
 const NO_FINDINGS_TEXT = '未发现问题。'
 const NO_FACT_CHECKS_TEXT = '未发现可核查项。'
 const NO_FACT_CHECKS_FAILED_TEXT = '事实核查角色未完成，不能视为未发现可核查项。'
+const NO_NOUN_CHECKS_TEXT = '未发现可核查名词。'
+const NO_NOUN_CHECKS_FAILED_TEXT = '名词核查角色未完成，不能视为未发现可核查名词。'
 const NO_MUST_FIX_TEXT = '无必须修改的条目。'
 const NEEDS_HUMAN_LABEL = '需人工确认'
 const DELETED_SUGGESTION_LABEL = '**（删除）**'
@@ -117,6 +140,7 @@ const MISSING_VALUE = '—'
 const FAILED_ROLES_HEADING = '## 未完成角色（未核查提示）'
 const FAILED_ROLES_INTRO = '以下角色未完成：报告不包含它们的结果，不能视为已检查。'
 const FACTS_FAILED_NOTICE = '事实核查角色未完成：不能视为未发现可核查项，相关事实未核查。'
+const NOUNS_FAILED_NOTICE = '名词核查角色未完成：不能视为未发现可核查名词，相关名词未核查。'
 const UNASSIGNED_ARTICLE_LABEL = '未归属文章'
 
 /** Role labels for the failed-role warning (same wording as the Client locale). */
@@ -126,6 +150,7 @@ const ROLE_LABELS: Readonly<Record<RoleId, string>> = {
   idioms: '成语',
   style: '规范',
   facts: '事实核查',
+  nouns: '名词核查',
   headline: '标题',
   consistency: '一致性',
   consolidator: '汇总',
@@ -270,22 +295,31 @@ function failedRolesOf(report: Report): ReportRoleFailure[] {
 }
 
 /**
- * Failed `facts` roles that belong to an article this report claims to cover.
+ * Failed records of one role for the articles this report claims to cover.
  *
  * The Host only fails role stages for the articles the user selected, so the
  * article-id filter is defensive: an unknown id in `failedRoles` still appears in
  * the warning block, but it must not change the claim that the reported articles
- * were fact-checked. An empty `articleIds` list means the report carries no
- * article scope, so every recorded failure counts.
+ * were checked. An empty `articleIds` list means the report carries no article
+ * scope, so every recorded failure counts.
  */
-function factsFailuresOf(report: Report): ReportRoleFailure[] {
+function roleFailuresOf(report: Report, role: RoleId): ReportRoleFailure[] {
   const reported = new Set(
     (report.articleIds ?? []).filter((id): id is string => typeof id === 'string'),
   )
   return failedRolesOf(report).filter(
-    (failure) =>
-      failure.role === 'facts' && (reported.size === 0 || reported.has(failure.articleId)),
+    (failure) => failure.role === role && (reported.size === 0 || reported.has(failure.articleId)),
   )
+}
+
+/** Failed `facts` roles that belong to an article this report claims to cover. */
+function factsFailuresOf(report: Report): ReportRoleFailure[] {
+  return roleFailuresOf(report, 'facts')
+}
+
+/** Failed `nouns` roles that belong to an article this report claims to cover. */
+function nounsFailuresOf(report: Report): ReportRoleFailure[] {
+  return roleFailuresOf(report, 'nouns')
 }
 
 /** One failed role: article title when resolvable, role label and stage error. */
@@ -305,9 +339,10 @@ function renderFailedRoleItem(
 
 /**
  * `## 未完成角色（未核查提示）` block, rendered before the findings. A failed
- * `facts` role additionally spells out that the facts were *not* checked, so the
- * export can never read an empty checklist as “未发现可核查项”. Returns `null`
- * when no role failed (the field is fully omitted from the document).
+ * `facts`/`nouns` role additionally spells out that the facts/nouns were *not*
+ * checked, so the export can never read an empty checklist as “未发现可核查项” or
+ * “未发现可核查名词”. Returns `null` when no role failed (the field is fully
+ * omitted from the document).
  */
 function renderFailedRoles(
   report: Report,
@@ -319,6 +354,9 @@ function renderFailedRoles(
   lines.push(...failures.map((failure) => renderFailedRoleItem(failure, articlesById)))
   if (failures.some((failure) => failure.role === 'facts')) {
     lines.push('', FACTS_FAILED_NOTICE)
+  }
+  if (failures.some((failure) => failure.role === 'nouns')) {
+    lines.push('', NOUNS_FAILED_NOTICE)
   }
   return lines.join('\n')
 }
@@ -356,6 +394,55 @@ function renderFactChecklist(report: Report): string {
   lines.push('| 主张 | 原文引用 | 类型 | 结论 | 依据/来源 |')
   lines.push('| --- | --- | --- | --- | --- |')
   lines.push(...factChecks.map(renderFactCheckRow))
+  return lines.join('\n')
+}
+
+/* ------------------------------------------------------------------------- */
+/* Noun checklist (existence only)                                             */
+/* ------------------------------------------------------------------------- */
+
+/** One noun-check row; `依据/来源` joins evidence, source links and the marker. */
+function renderNounCheckRow(nounCheck: NounCheck): string {
+  const status = NOUN_STATUS_LABELS[nounCheck.status] ?? '未知'
+  const basisParts: string[] = []
+  const evidence = oneLine(nounCheck.evidence)
+  if (evidence !== '') basisParts.push(evidence)
+  const sources = formatSources(nounCheck.sources)
+  if (sources !== '') basisParts.push(sources)
+  appendNeedsHumanMarker(basisParts, nounCheck.needsHuman)
+  const basis = basisParts.length === 0 ? MISSING_VALUE : basisParts.join('；')
+  return `| ${escapeTableCell(nounCheck.name)} | ${status} | ${escapeTableCell(basis)} |`
+}
+
+/**
+ * True when the report carries noun-check data at all.
+ *
+ * New reports always set `summary.nounCheck`, so the compact section is rendered
+ * even for an empty plan; reports persisted before the noun role existed carry
+ * neither field and stay unchanged.
+ */
+function hasNounCheckData(report: Report): boolean {
+  return (report.nounChecks?.length ?? 0) > 0 || report.summary?.nounCheck !== undefined
+}
+
+/**
+ * `## 名词核查` block: a compact existence table, or an explicit empty-state line.
+ * Returns `null` for reports without any noun-check data, so older Markdown
+ * exports keep their exact previous document order.
+ */
+function renderNounChecklist(report: Report): string | null {
+  if (!hasNounCheckData(report)) return null
+  const lines = ['## 名词核查', '']
+  const nounChecks = report.nounChecks ?? []
+  if (nounChecks.length === 0) {
+    // A failed nouns role means the terms were never checked; that is the
+    // opposite of “no checkable nouns found”.
+    lines.push(nounsFailuresOf(report).length > 0 ? NO_NOUN_CHECKS_FAILED_TEXT : NO_NOUN_CHECKS_TEXT)
+    return lines.join('\n')
+  }
+  lines.push('| 名词 | 状态 | 依据/来源 |')
+  lines.push('| --- | --- | --- |')
+  lines.push(...nounChecks.map(renderNounCheckRow))
   return lines.join('\n')
 }
 
@@ -431,6 +518,8 @@ export function renderReportMarkdown(
     blocks.push(renderArticleBlock(articleId, report, articlesById))
   }
   blocks.push(renderFactChecklist(report))
+  const nounChecklist = renderNounChecklist(report)
+  if (nounChecklist !== null) blocks.push(nounChecklist)
   blocks.push(renderMustFixSummary(report))
   blocks.push(renderFooter(report, version))
   return `${blocks.join('\n\n')}\n`

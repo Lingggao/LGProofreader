@@ -290,7 +290,7 @@ function reportWithFailures(...failedRoles: ReportRoleFailure[]): Report {
 }
 
 const META: MetaView = {
-  version: '0.1.0',
+  version: '1.0.0',
   model: { provider: 'provider_a', model: 'model_x' },
   promptVersion: 'prompt-v1',
   limits: { maxUploadBytes: 1, maxImageBytes: 1, maxJsonBytes: 1, maxPages: 1 },
@@ -1056,6 +1056,7 @@ describe('report UX a11y and i18n', () => {
     'report.role.idioms',
     'report.role.style',
     'report.role.facts',
+    'report.role.nouns',
     'report.role.headline',
     'report.role.consistency',
     'report.role.consolidator',

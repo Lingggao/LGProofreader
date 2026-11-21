@@ -3,13 +3,17 @@
  *
  * This module owns the deterministic part of the multi-role pipeline:
  *
- * - the role set of every depth preset — the `facts` role runs at **every** depth
- *   (设计 §7.2: 事实核查是所有深度的必选角色), only its network budget shrinks for
- *   `quick`; the worker order lists `facts` early so it overlaps the shorter text
- *   roles while the global concurrency cap is saturated (Task 25);
- * - the depth → fact-check budget mapping (standard 16 claims / 24 searches,
- *   deep 24 / 36, quick lower);
- * - the role cache key `articleId|role|promptVersion|model|articleTextHash`;
+ * - the role set of every depth preset — the `facts` and `nouns` roles run at
+ *   **every** depth (设计 §7.2: 事实核查是所有深度的必选角色), only their network
+ *   budget shrinks for `quick`; the worker order lists both network roles early
+ *   so they overlap the shorter text roles while the global concurrency cap is
+ *   saturated (Task 25);
+ * - the depth → fact-check/noun-check budget mapping (fact checking: standard
+ *   16 claims / 24 searches, deep 24 / 36, quick lower; nouns: quick 30/40,
+ *   standard 80/120, deep 120/180);
+ * - the role cache key `articleId|role|promptVersion|model|articleTextHash`,
+ *   extended with the depth and the network mode for the network roles
+ *   (`facts`, `nouns`);
  * - the per-role reasoning effort (Task 25: every role gets `high`, a
  *   provider-supported value that is still faster than the global `max`
  *   default; `medium` is rejected by `deepseek-official`), sent as a
@@ -19,8 +23,9 @@
  *   model, validate the reply with Task 6's `parseFindings` (against the article
  *   **title + subtitle + body**, so a headline finding can locate a title or
  *   subtitle quote — Task 21d/21e), stamp `articleId`/`roles`; the `facts` role
- *   instead runs Task 12's three-stage
- *   fact checker and converts sourced contradictions into `must_fix` findings;
+ *   instead runs Task 12's three-stage fact checker and converts sourced
+ *   contradictions into `must_fix` findings, and the `nouns` role runs the
+ *   independent existence-only noun checker (no findings at all);
  * - one-attempt consolidator execution: merged findings → consolidator model
  *   call → validated final findings with the merged `roles`/`sources`/`evidence`
  *   restored and merged problems the model omitted re-attached.
@@ -39,6 +44,7 @@ import type {
   Depth,
   FactCheck,
   Finding,
+  NounCheck,
   PromptLibrary,
   RoleId,
 } from '../../shared/types'
@@ -54,6 +60,14 @@ import {
   type FactCheckerStats,
   type SaveEvidence,
 } from './facts'
+import {
+  NOUN_DEEP_BUDGET,
+  NOUN_QUICK_BUDGET,
+  NOUN_STANDARD_BUDGET,
+  createNounChecker,
+  type NounCheckBudget,
+  type NounProgressUpdate,
+} from './nouns'
 import { findingGroupKey, firstNonEmptyText, unionSources } from './report'
 
 /* ------------------------------------------------------------------------- */
@@ -61,29 +75,37 @@ import { findingGroupKey, firstNonEmptyText, unionSources } from './report'
 /* ------------------------------------------------------------------------- */
 
 /** Worker roles of the `quick` depth (design §7.2). */
-export const QUICK_ROLES: readonly RoleId[] = Object.freeze(['master', 'facts', 'words'])
+export const QUICK_ROLES: readonly RoleId[] = Object.freeze([
+  'master',
+  'facts',
+  'nouns',
+  'words',
+])
 
 /**
  * Worker roles of the `standard` depth (the default).
  *
- * Task 25 ordering: `facts` runs right after the master role so the longest
- * role (claim extraction + two-stage network verification) overlaps the shorter
+ * Task 25 ordering: the network roles (`facts`, then the independent `nouns`
+ * role) run right after the master role so the longest roles overlap the shorter
  * text roles under the global concurrency cap instead of starting last and
- * pushing the job over its per-role timeout. The role *set* is unchanged.
+ * pushing the job over their per-role timeout. The role *set* is the documented
+ * standard preset.
  */
 export const STANDARD_ROLES: readonly RoleId[] = Object.freeze([
   'master',
   'facts',
+  'nouns',
   'words',
   'idioms',
   'style',
   'headline',
 ])
 
-/** Worker roles of the `deep` depth: every role except the consolidator (same facts-early order). */
+/** Worker roles of the `deep` depth: every role except the consolidator (same network-roles-early order). */
 export const DEEP_ROLES: readonly RoleId[] = Object.freeze([
   'master',
   'facts',
+  'nouns',
   'words',
   'idioms',
   'style',
@@ -105,15 +127,17 @@ export const ROLE_LABELS: Readonly<Record<RoleId, string>> = Object.freeze({
   idioms: '词语成语',
   style: '规范',
   facts: '事实核查',
+  nouns: '名词核查',
   headline: '标题导语',
   consistency: '一致性',
   consolidator: '汇总裁决',
 })
 
-/** Known role ids, in pipeline order (Task 25: `facts` early, consolidator last). */
+/** Known role ids, in pipeline order (Task 25: network roles early, consolidator last). */
 export const ROLE_IDS: readonly RoleId[] = Object.freeze([
   'master',
   'facts',
+  'nouns',
   'words',
   'idioms',
   'style',
@@ -152,6 +176,7 @@ export const ROLE_REASONING_EFFORT: Readonly<Record<RoleId, SupportedReasoningEf
     idioms: 'high',
     style: 'high',
     facts: 'high',
+    nouns: 'high',
     headline: 'high',
     consistency: 'high',
     consolidator: 'high',
@@ -205,6 +230,25 @@ export function factBudgetForDepth(depth: Depth): FactCheckBudget {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Noun-check budgets                                                          */
+/* ------------------------------------------------------------------------- */
+
+/** `quick` noun budget: 30 nouns / 40 searches (from `src/host/proof/nouns.ts`). */
+export const QUICK_NOUN_BUDGET: Readonly<NounCheckBudget> = NOUN_QUICK_BUDGET
+/** `standard` noun budget: 80 nouns / 120 searches. */
+export const STANDARD_NOUN_BUDGET: Readonly<NounCheckBudget> = NOUN_STANDARD_BUDGET
+/** `deep` noun budget: 120 nouns / 180 searches. */
+export const DEEP_NOUN_BUDGET: Readonly<NounCheckBudget> = NOUN_DEEP_BUDGET
+
+/** Return a mutable copy of the depth's noun-check budget for one checker. */
+export function nounBudgetForDepth(depth: Depth): NounCheckBudget {
+  if (depth === 'quick') return { ...QUICK_NOUN_BUDGET }
+  if (depth === 'standard') return { ...STANDARD_NOUN_BUDGET }
+  if (depth === 'deep') return { ...DEEP_NOUN_BUDGET }
+  throw new RangeError(`unknown proofreading depth: ${String(depth)}`)
+}
+
+/* ------------------------------------------------------------------------- */
 /* Cache key                                                                   */
 /* ------------------------------------------------------------------------- */
 
@@ -229,11 +273,12 @@ export function articleCacheText(article: Article): string {
  * name, so switching the provider invalidates the cache and the report identifies
  * the actual route.
  *
- * `depth` and `factCheck` are part of the identity **for the `facts` role only**:
- * its result depends on the depth-derived claim/search budget and on whether the
- * network was enabled (an offline run only produces `unverified` checks). A
- * quick/offline facts result must never be reused by a deep/online run. Other
- * roles see neither field, so their cache behavior is unchanged.
+ * `depth` and `factCheck` are part of the identity **for the network roles**
+ * (`facts`, `nouns`): their results depend on the depth-derived claim/noun/search
+ * budget and on whether the network was enabled (an offline run only produces
+ * `unverified` fact checks and `not_checked` noun checks). A quick/offline
+ * network result must never be reused by a deep/online run. Other roles see
+ * neither field, so their cache behavior is unchanged.
  */
 export interface RoleCacheIdentity {
   articleId: string
@@ -241,23 +286,28 @@ export interface RoleCacheIdentity {
   promptVersion: string
   model: string
   text: string
-  /** `facts` role only: depth preset that produced the result. */
+  /** Network roles only: depth preset that produced the result. */
   depth?: Depth
-  /** `facts` role only: whether network fact checking was enabled. */
+  /** Network roles only: whether network checking was enabled. */
   factCheck?: boolean
 }
 
 /**
  * Role cache key: `articleId|role|promptVersion|model|articleTextHash`, plus
- * `|depth|online|offline` for the `facts` role.
+ * `|depth|online|offline` for the `facts` and `nouns` roles.
  */
 export function roleCacheKey(input: RoleCacheIdentity): string {
   const textHash = createHash('sha256').update(input.text, 'utf8').digest('hex')
   const base = `${input.articleId}|${input.role}|${input.promptVersion}|${input.model}|${textHash}`
-  if (input.role !== 'facts') return base
+  if (!isNetworkRole(input.role)) return base
   const depth = input.depth ?? ''
   const network = input.factCheck === undefined ? '' : input.factCheck ? 'online' : 'offline'
   return `${base}|${depth}|${network}`
+}
+
+/** Roles whose result depends on the depth budget and the network mode. */
+function isNetworkRole(role: RoleId): boolean {
+  return role === 'facts' || role === 'nouns'
 }
 
 /* ------------------------------------------------------------------------- */
@@ -270,19 +320,21 @@ export interface RoleRunResult {
   findings: Finding[]
   /** Present only for the `facts` role. */
   factChecks?: FactCheck[]
+  /** Present only for the `nouns` role (existence-only checklist, no findings). */
+  nounChecks?: NounCheck[]
 }
 
 /** Persisted role result (`reports/<jobId>/<articleId>/<role>.json`). */
 export interface CachedRoleResult extends RoleRunResult {
   cacheKey: string
   articleId: string
-  /** `facts` role only: depth preset the result was produced with (cache identity). */
+  /** Network roles only: depth preset the result was produced with (cache identity). */
   depth?: Depth
-  /** `facts` role only: whether the network was enabled (cache identity). */
+  /** Network roles only: whether the network was enabled (cache identity). */
   factCheck?: boolean
 }
 
-/** Extra cache-identity fields persisted with a role result. */
+/** Extra cache-identity fields persisted with a role result (network roles). */
 export interface CachedRoleIdentity {
   depth?: Depth
   factCheck?: boolean
@@ -295,18 +347,25 @@ export interface RoleRunnerDeps {
   prompts: PromptLibrary
   /** Depth-derived fact-check budget; one checker is created for the whole job. */
   factBudget: FactCheckBudget
+  /** Depth-derived noun-check budget; one checker is created for the whole job. */
+  nounBudget: NounCheckBudget
   /** Optional evidence sink, usually the store's role-result writer. */
   saveEvidence?: SaveEvidence
   /** Live claim-plan progress for the facts role. */
   onFactProgress?: (update: FactCheckProgressUpdate) => void
-  /** Injectable clock for the facts time budget (defaults to Date.now). */
+  /** Live noun-plan progress for the independent nouns role. */
+  onNounProgress?: (update: NounProgressUpdate) => void
+  /** Injectable clock for the network roles' time budgets (defaults to Date.now). */
   now?: () => number
   /** Facts soft stop/hard stop overrides; default 11/12 minutes. */
   factSoftStopMs?: number
   factHardStopMs?: number
+  /** Nouns soft stop/hard stop overrides; default 7/8 minutes. */
+  nounSoftStopMs?: number
+  nounHardStopMs?: number
 }
 
-/** Per-job role executor: one fact checker, one prompt library, retries outside. */
+/** Per-job role executor: one fact/noun checker, one prompt library, retries outside. */
 export interface RoleRunner {
   /** Run one worker role once; throws on model/validation/cancellation failure. */
   run(role: RoleId, article: Article, context: string, signal: AbortSignal): Promise<RoleRunResult>
@@ -324,8 +383,8 @@ export interface RoleRunner {
 /**
  * Create the role executor for one proofreading job.
  *
- * The fact checker is created once per runner, so its `stats()` accumulates over
- * every article of the job (design §7.4: 构造一个 fact checker per job).
+ * The fact and noun checkers are created once per runner, so they bound the
+ * whole job's network work and their budgets apply per article `check()` call.
  */
 export function createRoleRunner(deps: RoleRunnerDeps): RoleRunner {
   const factChecker = createFactChecker({
@@ -343,6 +402,16 @@ export function createRoleRunner(deps: RoleRunnerDeps): RoleRunner {
     ...(deps.factSoftStopMs !== undefined ? { softStopMs: deps.factSoftStopMs } : {}),
     ...(deps.factHardStopMs !== undefined ? { hardStopMs: deps.factHardStopMs } : {}),
   })
+  const nounChecker = createNounChecker({
+    llm: withReasoningEffort(deps.llm, ROLE_REASONING_EFFORT.nouns),
+    web: deps.web,
+    prompts: deps.prompts,
+    budget: deps.nounBudget,
+    ...(deps.onNounProgress !== undefined ? { onProgress: deps.onNounProgress } : {}),
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    ...(deps.nounSoftStopMs !== undefined ? { softStopMs: deps.nounSoftStopMs } : {}),
+    ...(deps.nounHardStopMs !== undefined ? { hardStopMs: deps.nounHardStopMs } : {}),
+  })
 
   return {
     async run(
@@ -355,6 +424,11 @@ export function createRoleRunner(deps: RoleRunnerDeps): RoleRunner {
       if (role === 'facts') {
         const checks = await factChecker.check(article, context, signal)
         return { role, findings: contradictionFindings(checks), factChecks: checks }
+      }
+      if (role === 'nouns') {
+        // Existence information only: the nouns role never emits findings.
+        const checks = await nounChecker.check(article, context, signal)
+        return { role, findings: [], nounChecks: checks }
       }
       const prompt = deps.prompts.compose(role, { article, context })
       const messages: LlmMessage[] = [
@@ -424,8 +498,9 @@ export function toCachedRoleResult(
     findings: result.findings,
   }
   if (result.factChecks !== undefined) cached.factChecks = result.factChecks
-  // facts role only: persist the depth/network part of the cache identity so a
-  // stale quick/offline result can never be validated as a deep/online hit.
+  if (result.nounChecks !== undefined) cached.nounChecks = result.nounChecks
+  // Network roles only: persist the depth/network part of the cache identity so
+  // a stale quick/offline result can never be validated as a deep/online hit.
   if (identity.depth !== undefined) cached.depth = identity.depth
   if (identity.factCheck !== undefined) cached.factCheck = identity.factCheck
   return cached
@@ -440,7 +515,7 @@ export interface RoleCacheExpectation extends CachedRoleIdentity {
  * Read one persisted role result. A value written for a different cache key
  * (text/prompt/model changed) or with an unknown shape is ignored, so a stale
  * cache never feeds the report. When the expectation carries `depth`/`factCheck`
- * (the `facts` role), the persisted value must match them exactly; missing or
+ * (the network roles), the persisted value must match them exactly; missing or
  * different values are a cache miss.
  */
 export function readCachedRoleResult(
@@ -460,6 +535,10 @@ export function readCachedRoleResult(
   if (value.factChecks !== undefined) {
     if (!Array.isArray(value.factChecks)) return undefined
     result.factChecks = value.factChecks as FactCheck[]
+  }
+  if (value.nounChecks !== undefined) {
+    if (!Array.isArray(value.nounChecks)) return undefined
+    result.nounChecks = value.nounChecks as NounCheck[]
   }
   return result
 }

@@ -723,18 +723,6 @@ body[data-ds-dark-theme] .lgp-wordmark--dark {
   font-weight: 700;
   line-height: 18px;
 }
-.lgp-region-confidence {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: var(--lgp-text-label);
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-}
 .lgp-region--unassigned::before {
   border-style: dotted;
 }
@@ -1450,6 +1438,132 @@ body[data-ds-dark-theme] .lgp-wordmark--dark {
   color: var(--dsw-alias-state-success-primary);
 }
 
+/*
+ * Live noun-check plan (v1.0.0): the independent nouns role streams its own
+ * plan next to the fact-check plan. Same compact pattern (summary + capped
+ * scroll list) with a dashed divider so two plans in one job stay visually
+ * distinct; the shorter cap keeps both lists from pushing the controls away.
+ */
+.lgp-noun-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--dsw-alias-border-l2);
+}
+.lgp-noun-plan-title {
+  margin: 0;
+  font-size: var(--lgp-text-sm);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--dsw-alias-label-primary);
+}
+.lgp-noun-plan-summary {
+  margin: 0;
+  font-size: var(--lgp-text-label);
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.lgp-noun-plan-meta {
+  margin: 0;
+  font-size: var(--lgp-text-label);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.lgp-noun-plan-empty {
+  margin: 0;
+  font-size: var(--lgp-text-label);
+  color: var(--dsw-alias-label-tertiary);
+}
+.lgp-noun-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.lgp-noun-plan-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  font-size: var(--lgp-text-sm);
+  color: var(--dsw-alias-label-primary);
+}
+.lgp-noun-plan-item:last-child {
+  border-bottom: 0;
+}
+.lgp-noun-plan-priority,
+.lgp-noun-plan-kind,
+.lgp-noun-plan-status,
+.lgp-noun-plan-result {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-size: var(--lgp-text-label);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.lgp-noun-plan-priority {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.lgp-noun-plan-kind {
+  color: var(--dsw-alias-label-secondary);
+}
+.lgp-noun-plan-name {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lgp-noun-plan-quote {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+.lgp-noun-plan-status {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary);
+}
+.lgp-noun-plan-status--searching,
+.lgp-noun-plan-status--verifying {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+}
+.lgp-noun-plan-status--searched,
+.lgp-noun-plan-status--not_checked {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+.lgp-noun-plan-status--checked {
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
+}
+.lgp-noun-plan-result {
+  border-style: dashed;
+  color: var(--dsw-alias-label-secondary);
+}
+.lgp-noun-plan-result--exists {
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
+}
+.lgp-noun-plan-result--uncertain,
+.lgp-noun-plan-result--not_found {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+.lgp-noun-plan-result--not_checked {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .lgp-report {
   display: flex;
   flex-direction: column;
@@ -2068,6 +2182,111 @@ body[data-ds-dark-theme] .lgp-wordmark--dark {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/*
+ * Network noun-check report section (v1.0.0): same table pattern as the fact
+ * checklist, with existence-only status colours and a capped horizontally
+ * scrollable table. The not_found status uses the warning colour on purpose —
+ * it means “not in the retrieved sources”, never a confirmed non-existence.
+ */
+.lgp-nouns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.lgp-noun-counts {
+  margin: 0;
+  font-size: var(--lgp-text-label);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.lgp-noun-disclaimer {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-size: var(--lgp-text-label);
+  color: var(--dsw-alias-label-tertiary);
+}
+.lgp-nouns-scroll {
+  overflow-x: auto;
+}
+.lgp-nouns-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--lgp-text-label);
+}
+.lgp-nouns-table th,
+.lgp-nouns-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  vertical-align: top;
+  text-align: left;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+.lgp-nouns-table th {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lgp-noun-name {
+  color: var(--dsw-alias-label-primary);
+}
+.lgp-noun-priority {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 5px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--lgp-text-label);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lgp-noun-kind {
+  white-space: nowrap;
+}
+.lgp-noun-quote {
+  min-width: 96px;
+}
+.lgp-noun-evidence,
+.lgp-noun-sources {
+  display: block;
+}
+.lgp-noun-sources {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+.lgp-noun-basis-empty {
+  color: var(--dsw-alias-label-tertiary);
+}
+.lgp-noun-status {
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-size: var(--lgp-text-label);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.lgp-noun-status--exists {
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
+}
+.lgp-noun-status--uncertain,
+.lgp-noun-status--not_found {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+.lgp-noun-status--not_checked {
+  border-color: var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-tertiary);
 }
 

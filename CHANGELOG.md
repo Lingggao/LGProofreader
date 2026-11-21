@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-21
+
+First stable release. Adds an independent, network-backed noun-existence check
+alongside fact checking, removes confidence text from PDF region boxes, and
+ships the one-click GitHub Actions release workflow.
+
+### Added
+
+- Independent `nouns` role: prioritized noun/term extraction, Host web search,
+  deterministic existence classification (`exists` / `uncertain` / `not_found` /
+  `not_checked`), sources, live plan/progress and a report section. It runs in
+  parallel with `facts`, has its own sub-agent and its own time budget; it never
+  judges whether a sentence is true and never claims a term does not exist.
+- `docs/releases/v1.0.0.md` and `.github/workflows/release.yml`: manual
+  `workflow_dispatch` release that runs typecheck/tests/build/validate/release
+  and publishes the GitHub Release assets automatically.
+
+### Changed
+
+- PDF preview region boxes no longer print percentage confidence; the inspector
+  still exposes the numeric confidence.
+- Release workflow version input defaults to `1.0.0`.
+
 ## [0.1.0] - 2026-11-20
 
 First public release. Ling Gao 校对员 / Ling Gao Proofreader is a DeepSeek Harness

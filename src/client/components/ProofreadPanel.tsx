@@ -13,9 +13,11 @@
  *   confirmation spells out that the report contains no network verification.
  *
  * The call estimate is `selectedCount × roleCount` (design §7.5); role counts
- * mirror the Host depth presets (`quick` 3 workers + consolidator = 4,
- * `standard` 6 + 1 = 7, `deep` 7 + 1 = 8). The component is presentational:
- * `App` owns the depth/factCheck state and the actual proofread API call.
+ * mirror the Host depth presets — since v1.0.0 every preset also runs the
+ * independent `nouns` role, and the consolidator adds one more per article:
+ * `quick` 4 workers + consolidator = 5, `standard` 7 + 1 = 8, `deep` 8 + 1 = 9.
+ * The component is presentational: `App` owns the depth/factCheck state and the
+ * actual proofread API call.
  *
  * Task 21f: the panel also surfaces the failed roles of the latest report, so a
  * run whose result is partial (e.g. provider refusal on `facts`) is visible next
@@ -31,11 +33,16 @@ import {
 } from './FailedRolesNotice'
 import { JobProgress } from './JobProgress'
 
-/** Role count of every depth preset, including the consolidator (design §7.2). */
+/**
+ * Role count of every depth preset, including the consolidator (design §7.2).
+ *
+ * v1.0.0: the independent `nouns` role runs at every depth next to `facts`, so
+ * every preset gained one worker role (quick 5, standard 8, deep 9 in total).
+ */
 export const PROOFREAD_ROLE_COUNTS: Readonly<Record<Depth, number>> = Object.freeze({
-  quick: 4,
-  standard: 7,
-  deep: 8,
+  quick: 5,
+  standard: 8,
+  deep: 9,
 })
 
 /** Roles of the depth presets, for the hint under the depth control. */

@@ -51,7 +51,7 @@ const BASE_URL = 'http://localhost'
 const DOC_ID = 'doc_1700000000000_abcdef'
 const OTHER_DOC_ID = 'doc_1700000000001_abcdef'
 const JOB_ID = 'job_1700000000000_abcdef'
-const VERSION = '0.1.0'
+const VERSION = '1.0.0'
 const MODEL = { provider: 'deepseek-official', model: 'deepseek-flash' }
 const PROMPT_VERSION = 'pv_0123456789ab'
 const LIMITS = { maxUploadBytes: 1024, maxImageBytes: 1024, maxJsonBytes: 4096 }
@@ -1010,7 +1010,9 @@ describe('proofread', () => {
         articleIds: ['a1'],
         depth: 'deep',
         factCheck: false,
-        roles: ['words'],
+        // The new independent `nouns` role is a valid hint entry; v1 still
+        // derives the actual role set from `depth`.
+        roles: ['words', 'nouns'],
       }),
     )
     expect(response.status).toBe(202)
