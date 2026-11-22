@@ -19,7 +19,8 @@
  * Readable-minimum choice (Task 24 brief): the fit itself is the minimum — no
  * extra “minimum zoom” is forced above it, because that is exactly what used to
  * crop the page. The only floor is the normal `ZOOM_MIN` (20%), plus the
- * source-pixel cap that stops CSS upscaling from blurring the 240 DPI bitmap.
+ * source-pixel cap that stops CSS upscaling from blurring the supersampled page
+ * bitmap.
  *
  * The component stays presentational: it never touches page coordinates itself.
  * Every clamp happens in `App` through `moveRegion`/`resizeRegion` from
@@ -73,13 +74,35 @@ export function fitZoom(availablePx: number, pageWidthPt: number): number {
 }
 
 /**
+ * Zoom factor that fits the whole page (width **and** height) into the
+ * viewport. Used by the 适应页面 control; a non-measurable height falls back to
+ * width fit so hidden/legacy viewports still render.
+ */
+export function fitPageZoom(
+  availableWidthPx: number,
+  availableHeightPx: number,
+  page: PageSize,
+): number {
+  const byWidth = fitZoom(availableWidthPx, page.widthPt)
+  if (!Number.isFinite(availableWidthPx) || availableWidthPx <= 0) return byWidth
+  if (!Number.isFinite(availableHeightPx) || availableHeightPx <= 0) return byWidth
+  if (!Number.isFinite(page.heightPt) || page.heightPt <= 0) return byWidth
+  return clampZoom(
+    Math.min(
+      availableWidthPx / page.widthPt,
+      availableHeightPx / page.heightPt,
+    ),
+  )
+}
+
+/**
  * Highest zoom that still maps one page point to at least one rendered source
  * pixel (Task 24: “no blurry CSS scaling beyond source”).
  *
- * The page PNG is rendered at 240 DPI (≈3.33 px/pt for a 612 pt US-Letter
- * page), so zooming past `naturalWidth / widthPt` would only upscale the stored
- * bitmap. The returned cap is clamped to the normal zoom range; a page image
- * that has not loaded yet (`0`) imposes no extra cap.
+ * The page PNG is rendered at up to 480 DPI / 6000 px long edge (≈6.67 px/pt for
+ * a 612 pt US-Letter page), so zooming past `naturalWidth / widthPt` would only
+ * upscale the stored bitmap. The returned cap is clamped to the normal zoom
+ * range; a page image that has not loaded yet (`0`) imposes no extra cap.
  */
 export function sharpZoomLimit(naturalWidth: number, pageWidthPt: number): number {
   if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return ZOOM_MAX
@@ -140,11 +163,10 @@ export function Canvas({
   /** Current zoom factor; in fit mode it is recomputed from the viewport. */
   const [zoom, setZoom] = useState(DEFAULT_ZOOM)
   /**
-   * Fit mode is on by default (Task 24): the page opens at the readable fit
-   * width instead of 100% (which showed only part of a newspaper page once the
-   * right aside took its share of the workbench).
+   * Fit mode: `width` (default) or `page` (whole page visible, including its
+   * height). A manual zoom leaves both fit modes.
    */
-  const [fitMode, setFitMode] = useState(true)
+  const [fitMode, setFitMode] = useState<'width' | 'page' | null>('page')
   /**
    * Cap that prevents upscaling the stored page bitmap past its rendered pixel
    * source (`naturalWidth / widthPt`); `ZOOM_MAX` until the image loads.
@@ -214,7 +236,7 @@ export function Canvas({
       const rect = pageElement.getBoundingClientRect()
       const pageX = current > 0 ? (clientX - rect.left) / current : 0
       const pageY = current > 0 ? (clientY - rect.top) / current : 0
-      setFitMode(false)
+      setFitMode(null)
       setZoom(next)
       const restore = (): void => {
         const nextRect = pageElement.getBoundingClientRect()
@@ -255,8 +277,16 @@ export function Canvas({
     const viewport = viewportRef.current
     if (viewport === null) return
     const refit = (): void => {
-      const available = viewport.clientWidth - FIT_PADDING_PX
-      setZoom(clampToSource(fitZoom(available, page.widthPt)))
+      const availableWidth = viewport.clientWidth - FIT_PADDING_PX
+      if (fitMode === 'page') {
+        setZoom(
+          clampToSource(
+            fitPageZoom(availableWidth, viewport.clientHeight - FIT_PADDING_PX, page),
+          ),
+        )
+        return
+      }
+      setZoom(clampToSource(fitZoom(availableWidth, page.widthPt)))
     }
     refit()
     if (typeof ResizeObserver === 'undefined') {
@@ -293,14 +323,23 @@ export function Canvas({
 
   /** Manual zoom leaves fit mode: the user picked a size explicitly. */
   const zoomBy = (factor: number): void => {
-    setFitMode(false)
+    setFitMode(null)
     setZoom((current) => clampToSource(current * factor))
   }
 
-  const handleFit = (): void => {
-    setFitMode(true)
-    const available = (viewportRef.current?.clientWidth ?? 0) - FIT_PADDING_PX
-    setZoom(clampToSource(fitZoom(available, page.widthPt)))
+  const handleFit = (mode: 'width' | 'page'): void => {
+    setFitMode(mode)
+    const viewport = viewportRef.current
+    const availableWidth = (viewport?.clientWidth ?? 0) - FIT_PADDING_PX
+    if (mode === 'page') {
+      setZoom(
+        clampToSource(
+          fitPageZoom(availableWidth, (viewport?.clientHeight ?? 0) - FIT_PADDING_PX, page),
+        ),
+      )
+      return
+    }
+    setZoom(clampToSource(fitZoom(availableWidth, page.widthPt)))
   }
 
   const scale = zoom > 0 ? zoom : DEFAULT_ZOOM
@@ -319,7 +358,8 @@ export function Canvas({
       className="lgp-canvas-shell"
       data-lgp-slot="canvas"
       data-lgp-part="canvas"
-      data-lgp-fit={fitMode ? 'true' : 'false'}
+      data-lgp-fit={fitMode === null ? 'false' : 'true'}
+      data-lgp-fit-mode={fitMode ?? ''}
     >
       <div className="lgp-canvas-toolbar" role="toolbar" aria-label={t('canvas.toolbar')}>
         <button
@@ -363,8 +403,16 @@ export function Canvas({
         <button
           type="button"
           className="lgp-button lgp-canvas-fit-button"
-          aria-pressed={fitMode}
-          onClick={handleFit}
+          aria-pressed={fitMode === 'page'}
+          onClick={() => handleFit('page')}
+        >
+          {t('canvas.fitPage')}
+        </button>
+        <button
+          type="button"
+          className="lgp-button lgp-canvas-fit-button"
+          aria-pressed={fitMode === 'width'}
+          onClick={() => handleFit('width')}
         >
           {t('canvas.fit')}
         </button>

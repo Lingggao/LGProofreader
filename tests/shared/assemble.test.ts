@@ -45,6 +45,64 @@ const lines = [
 ]
 
 describe('assembleArticles', () => {
+  it('keeps short paragraph endings inside a real multi-column body', () => {
+    const result = assembleArticles({
+      page,
+      lines: [
+        line('l1', '标题', 50, 100, 300, 30),
+        line('l2', '本报讯 记者张三', 50, 160, 300),
+        line('l3', '左栏第一行内容完整', 50, 200, 300),
+        line('l4', '右栏第一行内容完整', 550, 200, 300),
+        line('l5', '左栏第二行内容完整', 50, 215, 300),
+        line('l6', '右栏收尾。', 550, 215, 80),
+        line('l7', '左栏收尾。', 50, 230, 80),
+      ],
+      candidates: [candidate('c1', ['l1'], 'headline'), candidate('c2', ['l2', 'l3', 'l4', 'l5', 'l6', 'l7'])],
+      vision: {
+        ...vision,
+        articles: [
+          {
+            ...vision.articles[0],
+            titleCandidateId: 'c1',
+            regionIds: ['c1', 'c2'],
+          },
+        ],
+      },
+    })
+    expect(result.articles[0].body).toContain('右栏收尾。')
+    expect(result.articles[0].body).toContain('左栏收尾。')
+  })
+
+  it('does not leak a detached photo caption into the article body', () => {
+    const result = assembleArticles({
+      page,
+      lines: [
+        line('l1', '标题', 50, 100, 300, 30),
+        line('l2', '本报讯 记者张三', 50, 160, 300),
+        line('l3', '正文第一行内容完整', 600, 200, 300),
+        line('l4', '正文第二行内容完整', 600, 215, 300),
+        line('l5', '正文第三行内容完整', 600, 230, 300),
+        line('l6', '“2026 奔流音乐会”演出现场。', 500, 205, 40),
+        line('l7', '（受访者供图）', 500, 215, 30),
+      ],
+      candidates: [candidate('c1', ['l1'], 'headline'), candidate('c2', ['l2', 'l3', 'l4', 'l5', 'l6', 'l7'])],
+      vision: {
+        ...vision,
+        articles: [
+          {
+            ...vision.articles[0],
+            titleCandidateId: 'c1',
+            regionIds: ['c1', 'c2'],
+          },
+        ],
+      },
+    })
+    expect(result.articles).toHaveLength(1)
+    expect(result.articles[0].body).toContain('正文第一行内容完整')
+    expect(result.articles[0].body).not.toContain('2026 奔流音乐会')
+    expect(result.articles[0].body).not.toContain('受访者供图')
+  })
+
   it('reads columns left-to-right and keeps title/byline/body', () => {
     const result = assembleArticles({
       page, lines,

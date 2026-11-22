@@ -51,7 +51,7 @@ export const PROMPT_LOCALE = 'zh'
 /* ------------------------------------------------------------------------- */
 
 /** Version reported by `/meta`/`/health` when `package.json` has no version. */
-export const FALLBACK_PLUGIN_VERSION = '1.0.0'
+export const FALLBACK_PLUGIN_VERSION = '1.1.0'
 
 /** Built-in model route used when neither settings nor `agentDefaultModel` decide one. */
 export const FALLBACK_PROVIDER = 'deepseek-official'

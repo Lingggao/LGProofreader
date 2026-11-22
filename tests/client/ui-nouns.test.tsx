@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Independent network noun-check UI (v1.0.0).
+ * Independent network noun-check UI (v1.1.0).
  *
  * Acceptance surface:
  * - `NounProgress` renders the live `job.nounProgress` plan: the summary line

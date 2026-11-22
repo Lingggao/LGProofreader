@@ -68,14 +68,30 @@ export interface ParsePdfPageOptions {
    * {@link DEFAULT_OVERLAY_MAX_EDGE}.
    */
   overlayMaxEdge?: number
+  /**
+   * Upper bound for the final page PNG bytes (v1.1.0). A very high-resolution
+   * newspaper page can exceed the Host's 20 MiB image limit; the parser then
+   * downsamples the encoded display bitmap only (the vision overlay is still
+   * rendered from the full-resolution canvas). Defaults to
+   * {@link MAX_PAGE_IMAGE_BYTES}.
+   */
+  maxPngBytes?: number
 }
 
 /**
- * Default vision-overlay long edge (Task 24): the HD page render is 240 DPI /
- * 3000 px, but the vision model does not need that many pixels to locate blocks;
- * 1600 px keeps candidate labels/boxes legible while shrinking the upload.
+ * Default vision-overlay long edge (Task 24): the HD page render is now 480 DPI /
+ * 6000 px for the preview, but the vision model does not need that many pixels to
+ * locate blocks; 1600 px keeps candidate labels/boxes legible while shrinking
+ * the upload.
  */
 export const DEFAULT_OVERLAY_MAX_EDGE = 1600
+
+/**
+ * Host `/page-image` limit (20 MiB). The page bitmap is supersampled at high
+ * resolution for the preview; if the PNG is larger than this, only the stored
+ * display bitmap is progressively downsampled so the upload never fails.
+ */
+export const MAX_PAGE_IMAGE_BYTES = 20 * 1024 * 1024
 
 /** Everything produced from one single-page PDF. */
 export interface ParsedPage {
@@ -233,6 +249,7 @@ function drawCandidateOverlay(
 /** Normalized parse options; the overlay long edge always has a value. */
 interface NormalizedParseOptions extends ParsePdfPageOptions {
   overlayMaxEdge: number
+  maxPngBytes: number
 }
 
 /** Normalize/validate the parse options before touching the file or PDF.js. */
@@ -245,7 +262,46 @@ function parseOptions(options: ParsePdfPageOptions): NormalizedParseOptions {
   const overlayMaxEdge =
     options.overlayMaxEdge === undefined ? DEFAULT_OVERLAY_MAX_EDGE : options.overlayMaxEdge
   computeRenderScale(0, 0, { dpi: 1, maxEdge: overlayMaxEdge })
-  return { dpi: options.dpi, maxEdge: options.maxEdge, overlayMaxEdge }
+  const maxPngBytes = options.maxPngBytes === undefined ? MAX_PAGE_IMAGE_BYTES : options.maxPngBytes
+  if (!Number.isFinite(maxPngBytes) || maxPngBytes <= 0) {
+    throw new RangeError('parsePdfPage: maxPngBytes must be a positive finite number')
+  }
+  return { dpi: options.dpi, maxEdge: options.maxEdge, overlayMaxEdge, maxPngBytes }
+}
+
+/**
+ * Encode the display page bitmap, progressively downsampling when the PNG
+ * exceeds `maxPngBytes` (v1.1.0). The high-resolution source canvas remains
+ * untouched and is still used for the vision overlay; only the bytes sent to
+ * the Host and shown in the preview are bounded.
+ */
+async function encodeBoundedPagePng(
+  source: HTMLCanvasElement,
+  maxPngBytes: number,
+): Promise<Blob> {
+  let current = source
+  let png = await canvasToPng(current)
+  let attempt = 0
+  while (png.size > maxPngBytes && attempt < 4 && current.width > 1 && current.height > 1) {
+    const ratio = Math.max(0.4, Math.min(0.9, Math.sqrt(maxPngBytes / png.size) * 0.92))
+    const next = createCanvas(
+      Math.max(1, Math.floor(current.width * ratio)),
+      Math.max(1, Math.floor(current.height * ratio)),
+    )
+    const context = canvasContext(next)
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(current, 0, 0, next.width, next.height)
+    current = next
+    png = await canvasToPng(current)
+    attempt += 1
+  }
+  if (png.size > maxPngBytes) {
+    throw new Error(
+      `parsePdfPage: page PNG is still ${png.size} bytes after downsampling (limit ${maxPngBytes})`,
+    )
+  }
+  return png
 }
 
 /** PDF.js text-content entries: text runs plus marked-content markers. */
@@ -275,7 +331,7 @@ export async function parsePdfPage(
   file: File,
   options: ParsePdfPageOptions,
 ): Promise<ParsedPage> {
-  const { dpi, maxEdge, overlayMaxEdge } = parseOptions(options)
+  const { dpi, maxEdge, overlayMaxEdge, maxPngBytes } = parseOptions(options)
   if (file === null || typeof file !== 'object' || typeof file.arrayBuffer !== 'function') {
     throw new TypeError('parsePdfPage: a File/Blob with arrayBuffer() is required')
   }
@@ -331,7 +387,7 @@ export async function parsePdfPage(
       throw error
     }
 
-    const pagePng = await canvasToPng(pageCanvas)
+    const pagePng = await encodeBoundedPagePng(pageCanvas, maxPngBytes)
     const overlayPng = await canvasToPng(
       drawCandidateOverlay(pageCanvas, candidates, widthPt, heightPt, overlayMaxEdge),
     )

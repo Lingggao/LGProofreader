@@ -418,7 +418,7 @@ describe('config: plugin constants', () => {
     expect(CONFIG_API_PREFIX).toBe('/api/lgproofreader')
     expect(CONFIG_API_PREFIX).toBe(API_PREFIX)
     expect(PROMPT_LOCALE).toBe('zh')
-    expect(FALLBACK_PLUGIN_VERSION).toBe('1.0.0')
+    expect(FALLBACK_PLUGIN_VERSION).toBe('1.1.0')
     expect(FALLBACK_PROVIDER).toBe('deepseek-official')
     expect(FALLBACK_MODEL).toBe('deepseek-flash')
   })
@@ -770,7 +770,7 @@ describe('routes: registerRoutes', () => {
 describe('bundle manifest, patch and locale', () => {
   it('declares the documented package metadata and exports', () => {
     expect(packageManifest.name).toBe('lg-proofreader')
-    expect(packageManifest.version).toBe('1.0.0')
+    expect(packageManifest.version).toBe('1.1.0')
     expect(packageManifest.type).toBe('module')
     expect(packageManifest.icon).toBe('./icon.png')
     expect(packageManifest.exports['.']).toBe('./lib/index.js')

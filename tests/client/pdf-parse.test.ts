@@ -461,6 +461,13 @@ describe('parsePdfPage', () => {
     ).rejects.toThrow(RangeError)
     expect(pdfjsMock.getDocument).not.toHaveBeenCalled()
   })
+
+  it('rejects an invalid maxPngBytes before touching the file or PDF.js', async () => {
+    await expect(
+      parsePdfPage(fakePdfFile(), { dpi: 240, maxEdge: 3000, maxPngBytes: 0 }),
+    ).rejects.toThrow(RangeError)
+    expect(pdfjsMock.getDocument).not.toHaveBeenCalled()
+  })
 })
 
 describe('pdf.js worker bootstrap', () => {

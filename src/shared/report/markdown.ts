@@ -50,7 +50,7 @@ import type {
  * keeps the pure renderer usable on its own (tests/tools) and must stay equal to
  * the manifest version — `scripts/validate.mjs` fails on drift.
  */
-export const DEFAULT_REPORT_VERSION = '1.0.0'
+export const DEFAULT_REPORT_VERSION = '1.1.0'
 
 /**
  * Build-time injected default footer banner (`Ling Gao Proofreader v<version>`).

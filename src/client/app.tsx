@@ -3,8 +3,8 @@
  *
  * This module owns:
  * - the upload flow: `%PDF-` + 150 MB validation → client-side parse at
- *   `{ dpi: 240, maxEdge: 3000 }` (HD page; vision overlay at 1600 px) →
- *   `POST /documents` → `page-text` →
+ *   `{ dpi: 480, maxEdge: 6000 }` (supersampled HD page; vision overlay at 1600
+ *   px) → `POST /documents` → `page-text` →
  *   `page-image` → `page-overlay` → `POST /analyze` → poll `GET /job` → layout;
  * - the workbench composition (header, recent-document rail, page canvas +
  *   region overlay + inspector, article list, proofread placeholder) over the
@@ -121,10 +121,10 @@ import type {
 /** Single-upload cap: 150 MB (design §11.1 `maxUploadBytes` default). */
 export const MAX_UPLOAD_BYTES = 150 * 1024 * 1024
 
-/** Client parse resolution (Task 24: HD page + smaller vision overlay). */
+/** Client parse resolution (v1.1.0: 4× supersampled HD page + smaller vision overlay). */
 export const PARSE_OPTIONS: ParsePdfPageOptions = Object.freeze({
-  dpi: 240,
-  maxEdge: 3000,
+  dpi: 480,
+  maxEdge: 6000,
   overlayMaxEdge: 1600,
 })
 

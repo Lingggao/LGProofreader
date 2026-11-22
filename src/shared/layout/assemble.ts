@@ -663,6 +663,76 @@ function resolveMembership(
 /* Article text                                                                */
 /* ------------------------------------------------------------------------- */
 
+/** Wide-enough lines used to infer the real body columns of one article. */
+const COLUMN_FRAGMENT_WIDTH_RATIO = 0.55
+/** Minimum number of wide body lines before detached-fragment filtering runs. */
+const MIN_COLUMN_BAND_LINES = 3
+/** Font-relative slack when deciding whether a short line belongs to a column. */
+const COLUMN_BAND_SLACK_RATIO = 0.5
+
+/**
+ * Drop short text fragments that sit completely outside every body column of an
+ * article.
+ *
+ * Real page text is occasionally captured inside a neighbouring article's
+ * rectangular region: a photo caption in the gutter, a sidebar, or a fragment of
+ * an image label. The region rectangle still covers it, but the fragment's
+ * narrow box is detached from all wide text columns. The deterministic repair
+ * below keeps wide lines (and short lines whose centre/overlap falls inside a
+ * wide-line column band), so legitimate indented/short paragraph endings and
+ * multi-column articles survive, while detached caption fragments do not leak
+ * into the body.
+ *
+ * This is deliberately narrow: it only runs when the article has at least
+ * `MIN_COLUMN_BAND_LINES` wide lines, and it never changes the region map,
+ * coverage statistics or title/byline detection.
+ */
+function dropDetachedColumnFragments(entries: readonly LineEntry[]): LineEntry[] {
+  if (entries.length < MIN_COLUMN_BAND_LINES) return [...entries]
+  const widths = entries.map((entry) => entry.box.w).filter((width) => width > 0).sort((a, b) => a - b)
+  if (widths.length === 0) return [...entries]
+  const medianWidth = (() => {
+    const middle = Math.floor(widths.length / 2)
+    return widths.length % 2 === 0
+      ? (widths[middle - 1] + widths[middle]) / 2
+      : widths[middle]
+  })()
+  if (medianWidth <= 0) return [...entries]
+
+  const wide = entries.filter((entry) => entry.box.w >= medianWidth * COLUMN_FRAGMENT_WIDTH_RATIO)
+  if (wide.length < MIN_COLUMN_BAND_LINES) return [...entries]
+  const medianFont = median(wide.map((entry) => entry.line.fontSize))
+  const slack = Math.max(1.5, medianFont * COLUMN_BAND_SLACK_RATIO)
+
+  // Merge wide-line horizontal intervals into body-column bands. A short line is
+  // kept when it sits inside a band; detached caption/sidebar fragments are not.
+  const bands: Array<{ left: number; right: number }> = []
+  for (const entry of [...wide].sort((a, b) => a.box.x - b.box.x || a.box.w - b.box.w)) {
+    const left = entry.box.x
+    const right = entry.box.x + entry.box.w
+    const last = bands[bands.length - 1]
+    if (last !== undefined && left <= last.right + slack) {
+      last.right = Math.max(last.right, right)
+    } else {
+      bands.push({ left, right })
+    }
+  }
+
+  return entries.filter((entry) => {
+    if (entry.box.w >= medianWidth * COLUMN_FRAGMENT_WIDTH_RATIO) return true
+    const left = entry.box.x
+    const right = entry.box.x + entry.box.w
+    const center = left + entry.box.w / 2
+    return bands.some((band) => {
+      const overlap = Math.min(right, band.right) - Math.max(left, band.left)
+      return (
+        (center >= band.left - slack && center <= band.right + slack) ||
+        overlap >= entry.box.w * 0.5
+      )
+    })
+  })
+}
+
 /** Largest-font line of a non-empty reading-ordered pool (first wins ties). */
 function pickLargestLine(pool: readonly LineEntry[]): LineEntry | undefined {
   let best: LineEntry | undefined
@@ -808,7 +878,8 @@ function buildArticle(
   }
   const afterByline = remaining.filter((entry) => !excludedBylineIndexes.has(entry.index))
   const subtitleLine = pickSubtitle(afterByline)
-  const bodyLines = afterByline.filter((entry) => entry.index !== subtitleLine?.index)
+  const bodyCandidates = afterByline.filter((entry) => entry.index !== subtitleLine?.index)
+  const bodyLines = dropDetachedColumnFragments(bodyCandidates)
   const body = buildCleanBody(
     bodyLines.map((entry) => entry.line),
     (paragraph) => mergeLineTexts(paragraph),

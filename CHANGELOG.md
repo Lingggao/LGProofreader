@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-22
+
+### Fixed
+
+- Photo captions/sidebar fragments that fall inside a neighbouring article's
+  rectangular vision region no longer leak into that article's body. A
+  deterministic wide-column-band filter keeps short indented lines and
+  multi-column prose; verified on `2B20261122.pdf` (the C罗 article no longer
+  contains the 奔流音乐会 caption).
+
+### Changed
+
+- PDF preview is supersampled at up to 6000 px / 480 DPI (instead of 3000 px /
+  240 DPI), with automatic downsampling only for the stored display PNG when it
+  would exceed the Host's 20 MiB image limit.
+- Default preview mode is **fit page** (whole page visible), with a separate
+  **fit width** control. The image uses `object-fit: contain`, so a tiny
+  page/bitmap ratio difference can never stretch text horizontally.
+
 ## [1.0.0] - 2026-11-21
 
 First stable release. Adds an independent, network-backed noun-existence check

@@ -160,7 +160,7 @@ describe('document layout', () => {
     const factRow = markdown.indexOf('| 2026年11月14日 |')
     const mustFix = markdown.indexOf('## 必须修改的条目')
     const summaryItem = markdown.indexOf('改“的地得”')
-    const footer = markdown.indexOf('Ling Gao Proofreader v1.0.0')
+    const footer = markdown.indexOf('Ling Gao Proofreader v1.1.0')
     expect(title).toBe(0)
     expect(articleHeading).toBeGreaterThan(title)
     expect(findings).toBeGreaterThan(articleHeading)
@@ -425,7 +425,7 @@ describe('must-fix summary and footer', () => {
   it('ends with a footer carrying product version, model and prompt version', () => {
     const markdown = renderReportMarkdown(report(), [article()])
     const footer = markdown.trimEnd().split('\n').at(-1) as string
-    expect(footer).toContain('Ling Gao Proofreader v1.0.0')
+    expect(footer).toContain('Ling Gao Proofreader v1.1.0')
     expect(footer).toContain('deepseek-flash')
     expect(footer).toContain('v1')
   })
@@ -443,7 +443,7 @@ describe('must-fix summary and footer', () => {
     expect(markdown).toContain('# Ling Gao 校对员 · 校对报告')
     expect(markdown).toContain('未发现可核查项。')
     expect(markdown).toContain('无必须修改的条目。')
-    expect(markdown).toContain('Ling Gao Proofreader v1.0.0')
+    expect(markdown).toContain('Ling Gao Proofreader v1.1.0')
   })
 })
 

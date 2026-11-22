@@ -290,7 +290,7 @@ function reportWithFailures(...failedRoles: ReportRoleFailure[]): Report {
 }
 
 const META: MetaView = {
-  version: '1.0.0',
+  version: '1.1.0',
   model: { provider: 'provider_a', model: 'model_x' },
   promptVersion: 'prompt-v1',
   limits: { maxUploadBytes: 1, maxImageBytes: 1, maxJsonBytes: 1, maxPages: 1 },

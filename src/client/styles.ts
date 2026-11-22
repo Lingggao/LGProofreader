@@ -563,13 +563,13 @@ body[data-ds-dark-theme] .lgp-wordmark--dark {
   display: block;
   width: 100%;
   height: 100%;
+  object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
-  /* Task 24: let the browser use its high-quality scaler (the page PNG is
-     rendered at 240 DPI, so fit/zoom downscale instead of blurring). The
-     "high-quality" keyword is CSS Images 4; unsupported runtimes keep "auto". */
+  /* v1.1.0: the page bitmap is rendered at up to 4x its fit-size; the browser
+     downsamples the supersampled bitmap for the final display. object-fit:
+     contain also guarantees a non-uniform page box can never stretch glyphs. */
   image-rendering: auto;
-  image-rendering: high-quality;
 }
 .lgp-canvas-image-placeholder {
   display: block;

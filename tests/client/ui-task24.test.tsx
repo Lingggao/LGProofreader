@@ -27,7 +27,7 @@ vi.mock('../../src/client/assets', () => ({
 }))
 
 import { App, type WorkbenchApi } from '../../src/client/app'
-import { Canvas, fitZoom, sharpZoomLimit, type CanvasProps } from '../../src/client/components/Canvas'
+import { Canvas, fitPageZoom, fitZoom, sharpZoomLimit, type CanvasProps } from '../../src/client/components/Canvas'
 import {
   InlineMarkdown,
   parseBoldSpans,
@@ -64,7 +64,7 @@ const SETTINGS: SettingsView = {
 }
 
 const META: MetaView = {
-  version: '1.0.0',
+  version: '1.1.0',
   model: { provider: 'provider_a', model: 'model_x' },
   promptVersion: 'prompt-v1',
   limits: { maxUploadBytes: 1, maxImageBytes: 1, maxJsonBytes: 1, maxPages: 1 },
@@ -275,8 +275,12 @@ describe('Task 24 stylesheet', () => {
     expect(label).toMatch(/font-size: var\(--lgp-text-label\)|font-size: 12px/)
     expect(label).toContain('padding:')
     expect(label).toContain('border-radius: 6px')
-    // 1.0.0 removed the in-box confidence text to keep the preview uncluttered.
+    // 1.1.0 removed the in-box confidence text; 1.1.0 guarantees the page
+    // bitmap is letterboxed (never stretched) inside the page frame.
     expect(clientStyles).not.toContain('.lgp-region-confidence')
+    const image = clientStyles.match(/\.lgp-canvas-image \{([^}]*)\}/)?.[1] ?? ''
+    expect(image).toContain('object-fit: contain')
+    expect(image).toMatch(/image-rendering: auto/)
     const handle = clientStyles.match(/\.lgp-region-handle \{([^}]*)\}/)?.[1] ?? ''
     expect(handle).toMatch(/width: 1[0-2]px/)
     expect(handle).toMatch(/height: 1[0-2]px/)
@@ -390,16 +394,22 @@ function pageWidth(container: HTMLElement): string {
 }
 
 describe('Canvas adaptive fit', () => {
-  it('starts in fit mode and fits the page width on first layout', () => {
+  it('starts in whole-page fit mode and still has a width-fit control', () => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver)
     stubViewportWidth(832)
 
     const { container } = renderCanvas()
 
-    // (832 - 32) / 1000 pt = 0.8 → 80%.
+    // jsdom has no measurable height, so the page fit falls back to width:
+    // (832 - 32) / 1000 pt = 0.8 → 80%. The mode itself is `page`.
     expect(fitFlag(container)).toBe('true')
-    const fitButton = screen.getByRole('button', { name: '适应宽度' })
-    expect(fitButton.getAttribute('aria-pressed')).toBe('true')
+    expect(container.querySelector('.lgp-canvas-shell')?.getAttribute('data-lgp-fit-mode')).toBe(
+      'page',
+    )
+    const widthButton = screen.getByRole('button', { name: '适应宽度' })
+    expect(widthButton.getAttribute('aria-pressed')).toBe('false')
+    const pageButton = screen.getByRole('button', { name: '适应页面' })
+    expect(pageButton.getAttribute('aria-pressed')).toBe('true')
     expect(zoomValue(container)).toBe('80')
     expect(pageWidth(container)).toBe('800px')
   })
@@ -444,6 +454,9 @@ describe('Canvas adaptive fit', () => {
     expect(screen.getByRole('button', { name: '适应宽度' }).getAttribute('aria-pressed')).toBe(
       'false',
     )
+    expect(screen.getByRole('button', { name: '适应页面' }).getAttribute('aria-pressed')).toBe(
+      'false',
+    )
 
     // A viewport change no longer moves the manual zoom.
     viewport.setWidth(532)
@@ -462,6 +475,9 @@ describe('Canvas adaptive fit', () => {
     expect(sharpZoomLimit(2040, 612)).toBeCloseTo(2040 / 612, 10)
     expect(sharpZoomLimit(0, 612)).toBe(4)
     expect(fitZoom(4000, 500)).toBe(4)
+    // Fit-page takes the smaller of width/height scale so the whole page is visible.
+    expect(fitPageZoom(800, 560, { widthPt: 1000, heightPt: 1400 })).toBe(0.4)
+    expect(fitPageZoom(832, 2000, { widthPt: 1000, heightPt: 1400 })).toBe(0.832)
 
     // A loaded bitmap caps a manual zoom above its source resolution.
     vi.stubGlobal('ResizeObserver', FakeResizeObserver)

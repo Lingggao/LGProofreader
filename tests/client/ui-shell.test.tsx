@@ -622,7 +622,7 @@ describe('createWorkbenchApi', () => {
 /* ------------------------------------------------------------------------- */
 
 describe('runUploadFlow', () => {
-  it('parses at 240 dpi / maxEdge 3000 with a 1600 overlay, uploads page data, analyzes and polls to ready without proofreading', async () => {
+  it('parses at 480 dpi / maxEdge 6000 with a 1600 overlay, uploads page data, analyzes and polls to ready without proofreading', async () => {
     const { api, mocks, page } = makeFakeApi()
     const phases: string[] = []
     const progress: UploadProgress[] = []
@@ -639,11 +639,11 @@ describe('runUploadFlow', () => {
 
     expect(phases).toEqual(['validating', 'parsing', 'uploading', 'submitting', 'analyzing'])
     expect(mocks.parsePdfPage).toHaveBeenCalledWith(file, {
-      dpi: 240,
-      maxEdge: 3000,
+      dpi: 480,
+      maxEdge: 6000,
       overlayMaxEdge: 1600,
     })
-    expect(PARSE_OPTIONS).toEqual({ dpi: 240, maxEdge: 3000, overlayMaxEdge: 1600 })
+    expect(PARSE_OPTIONS).toEqual({ dpi: 480, maxEdge: 6000, overlayMaxEdge: 1600 })
     expect(mocks.uploadDocument).toHaveBeenCalledWith(file, expect.any(Function), undefined)
     expect(progress).toEqual([{ loaded: 1, total: 2, ratio: 0.5 }])
     expect(documents).toEqual([DOCUMENT])
